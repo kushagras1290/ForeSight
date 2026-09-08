@@ -1,0 +1,34 @@
+# Render Blueprint — deploys the scoring service and the dashboard as one
+# container, both served from the same origin.
+#
+# Deploy: push this repository to GitHub, then create a new Blueprint on Render
+# and point it at the repo. Render reads this file and builds the Dockerfile.
+#
+# The image bakes in a scored plan at build time, so the service is ready the
+# moment it starts. To refresh against new extracts, open a shell on the
+# instance and run `python scripts/06_refresh.py`, or rebuild.
+
+services:
+  - type: web
+    name: foresight
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore          # closest to the client
+    healthCheckPath: /ready
+    autoDeploy: true
+
+    envVars:
+      - key: FORESIGHT_LOG_FORMAT
+        value: json
+      - key: FORESIGHT_LOG_LEVEL
+        value: INFO
+      # Same-origin, so no cross-origin request is ever made in production.
+      # Widen only if the dashboard is hosted separately.
+      - key: FORESIGHT_CORS_ORIGINS
+        value: ""
+      - key: FORESIGHT_API_MAX_BATCH_SIZE
+        value: "200"
+      # Fixed so the deployed numbers match the ones in the README.
+      - key: FORESIGHT_RANDOM_SEED
+        value: "20260907"

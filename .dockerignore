@@ -1,0 +1,38 @@
+# Keep the build context small and the image free of local state.
+# The image regenerates data and artifacts during the build, so nothing local
+# needs to be copied in — and copying it would make builds non-reproducible.
+
+.git/
+.github/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+data/
+artifacts/
+reports/figures/
+notebooks/
+tests/
+
+dashboard/node_modules/
+dashboard/dist/
+
+.env
+.env.*
+!.env.example
+
+*.md
+!README.md
+
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.playwright-mcp/

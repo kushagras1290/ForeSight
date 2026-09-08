@@ -1,0 +1,246 @@
+/* ============================================================================
+   FORESIGHT — "North Harbour" design system
+
+   The client is NorthBay Living, a home & lifestyle brand, and the users are an
+   operations team triaging ~200 products in a bright warehouse office. The
+   palette is drawn from that: warm linen paper rather than clinical white, a
+   deep pine-teal for structure, terracotta for anything that asks for action.
+
+   ACCESSIBILITY CONTRACT
+   - Every text colour is checked against its own background for >= 4.5:1.
+   - `--signal-warn` is a fill colour only; `--signal-warn-ink` is its text
+     partner, because ochre at 3.4:1 fails as text.
+   - Risk is never carried by hue alone. The decisioning grid encodes it by
+     POSITION, and the worklist pairs every colour with an icon and a label, so
+     the rust/moss pairing does not fail for red-green colour blindness.
+   ========================================================================== */
+
+:root {
+  /* --- Foundation ------------------------------------------------------- */
+  --ground: #f4f1ea;
+  --surface: #fbf9f5;
+  --surface-sunk: #ebe7dd;
+  --surface-raised: #ffffff;
+  --rule: #dcd5c7;
+  --rule-strong: #c9c0ad;
+
+  --ink: #16211f;
+  --ink-2: #4c5a56;
+  --ink-3: #6b7873;
+  --ink-inverse: #f7f4ee;
+
+  /* --- Brand ------------------------------------------------------------ */
+  --harbour-900: #0c3330;
+  --harbour-700: #12514c;
+  --harbour-500: #1e7a72;
+  --harbour-300: #6fb0a8;
+  --harbour-100: #d3e5e1;
+  --harbour-050: #e9f2f0;
+
+  /* --- Action accent ---------------------------------------------------- */
+  --ember-700: #8f3f21;
+  --ember-600: #b4512c;
+  --ember-400: #d97a4e;
+  --ember-100: #f6e3d8;
+
+  /* --- Risk quadrants (brief section 8.2) ------------------------------- */
+  /* Each signal carries three tokens: a solid for marks and icons, a soft tint
+     for fills, and a pre-mixed translucent border. The borders are written as
+     literal rgba rather than color-mix() so they render identically on older
+     browsers - color-mix() needs Chrome 111+ / Safari 16.2+, and a silently
+     missing border is a worse trade than a hard-coded value. */
+  --signal-critical: #a8321f;
+  --signal-critical-soft: #f7e0da;
+  --signal-critical-border: rgba(168, 50, 31, 0.4);
+  --signal-warn: #b37e14;
+  --signal-warn-ink: #8a6110;
+  --signal-warn-soft: #f7ecd4;
+  --signal-warn-border: rgba(179, 126, 20, 0.4);
+  --signal-watch: #3f6b8a;
+  --signal-watch-soft: #dde8f0;
+  --signal-watch-border: rgba(63, 107, 138, 0.4);
+  --signal-ok: #2c6e4e;
+  --signal-ok-soft: #dcece3;
+  --signal-ok-border: rgba(44, 110, 78, 0.4);
+  --harbour-border: rgba(30, 122, 114, 0.4);
+
+  /* --- Forecast chart --------------------------------------------------- */
+  --series-actual: #16211f;
+  --series-baseline: #9aa4a0;
+  --series-forecast: #b4512c;
+  --series-band: rgba(180, 81, 44, 0.14);
+  --series-history: #12514c;
+
+  /* --- Type ------------------------------------------------------------- */
+  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --font-ui: 'Instrument Sans', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
+
+  /* --- Space & shape ---------------------------------------------------- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --radius-sm: 4px;
+  --radius: 8px;
+  --radius-lg: 14px;
+
+  --shadow-sm: 0 1px 2px rgba(22, 33, 31, 0.06);
+  --shadow: 0 2px 8px rgba(22, 33, 31, 0.07), 0 1px 2px rgba(22, 33, 31, 0.05);
+  --shadow-lg: 0 12px 34px rgba(22, 33, 31, 0.14);
+
+  --header-height: 60px;
+  --max-width: 1560px;
+
+  color-scheme: light;
+}
+
+/* ============================================================================
+   Reset & base
+   ========================================================================== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  /* Paper grain: a barely-there texture so large linen areas do not read as a
+     flat digital fill. Two low-alpha radial gradients, no image request. */
+  background-image:
+    radial-gradient(circle at 15% 12%, rgba(18, 81, 76, 0.03) 0, transparent 46%),
+    radial-gradient(circle at 85% 8%, rgba(180, 81, 44, 0.025) 0, transparent 40%);
+  background-attachment: fixed;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+}
+
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* Numbers must line up in columns; proportional digits make a table of figures
+   impossible to scan down. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Small-caps eyebrow used above every section heading. */
+.eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.display {
+  font-family: var(--font-display);
+  font-optical-sizing: auto;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ============================================================================
+   Accessibility
+   ========================================================================== */
+:focus-visible {
+  outline: 2px solid var(--harbour-500);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============================================================================
+   Scrollbars — the default Windows scrollbar is jarring against warm linen.
+
+   Both syntaxes are present on purpose, and neither is a fallback for the other:
+   the standard properties cover Firefox and Chrome 121+, while the ::-webkit-
+   pseudo-elements below cover Safari and older Chromium. A browser that
+   understands neither simply keeps its native scrollbar, which is fine.
+   ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--rule-strong);
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 99px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ink-3);
+  background-clip: content-box;
+}

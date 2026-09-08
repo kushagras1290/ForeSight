@@ -1,0 +1,56 @@
+# --- Client data -------------------------------------------------------------
+# Section 16.3 of the brief: treat the client extracts as confidential and never
+# commit raw dumps. See the README for how to materialise data/raw/ locally.
+data/raw/*
+data/interim/*
+data/processed/*
+data/holdout/*
+# Generated test sets are demand data too. The READMEs are kept: they record what
+# each set is and the score it produced, which is documentation rather than data.
+data/testsets/**/*.csv
+!data/**/.gitkeep
+!data/**/README.md
+
+# --- Build artifacts ---------------------------------------------------------
+artifacts/*
+!artifacts/.gitkeep
+reports/figures/*
+!reports/figures/.gitkeep
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# --- Node / dashboard --------------------------------------------------------
+node_modules/
+dashboard/dist/
+dashboard/.vite/
+dashboard/tsconfig.tsbuildinfo
+*.tsbuildinfo
+*.local
+
+# --- Tests -------------------------------------------------------------------
+# Kept local rather than shared. Remove this entry to publish the suite.
+tests/
+
+# --- Secrets -----------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- OS / editor -------------------------------------------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

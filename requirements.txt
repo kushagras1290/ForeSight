@@ -1,0 +1,25 @@
+# Project FORESIGHT - runtime dependencies
+#
+# Version floors are set to the oldest release that supports the APIs used here;
+# upper bounds guard against the next major, which is where breaking changes land.
+# Verified against the local toolchain: Python 3.14.3, pandas 3.0.0, numpy 2.4.2,
+# scikit-learn 1.8.0, LightGBM 4.6.0, FastAPI 0.136.3, pydantic 2.12.5.
+#
+# The code is written to be correct under BOTH pandas 2.2+ and pandas 3.x
+# (Copy-on-Write semantics, no chained assignment, no positional `inplace`).
+
+pandas>=2.2,<4.0
+numpy>=1.26,<3.0
+pyarrow>=16.0
+scikit-learn>=1.5,<2.0
+lightgbm>=4.3,<5.0
+scipy>=1.13
+statsmodels>=0.14
+matplotlib>=3.8
+pydantic>=2.7,<3.0
+pydantic-settings>=2.3,<3.0
+fastapi>=0.115
+uvicorn[standard]>=0.30
+# Required by FastAPI for the CSV upload on /api/evaluate/upload.
+python-multipart>=0.0.9
+joblib>=1.4

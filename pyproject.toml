@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "foresight"
+version = "1.0.0"
+description = "Project FORESIGHT - demand & inventory intelligence for NorthBay Living"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Zidio Data Science Engagement" }]
+
+dependencies = [
+    "pandas>=2.2,<4.0",
+    "numpy>=1.26,<3.0",
+    "pyarrow>=16.0",
+    "scikit-learn>=1.5,<2.0",
+    "lightgbm>=4.3,<5.0",
+    "scipy>=1.13",
+    "statsmodels>=0.14",
+    "matplotlib>=3.8",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.3,<3.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "joblib>=1.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "httpx>=0.27",
+    "ruff>=0.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "scripts", "service", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "ARG", "PTH", "RET", "TID"]
+ignore = [
+    "E501",   # line length is handled by the formatter
+    "B008",   # FastAPI Depends() in defaults is idiomatic
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ARG001", "ARG002"]
+"notebooks/*" = ["E402"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+markers = [
+    "slow: marks tests that train models (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:lightgbm.*",
+]

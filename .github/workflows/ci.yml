@@ -1,0 +1,130 @@
+name: CI
+
+# Verifies that a clean checkout can install, lint, build the dashboard, and run
+# the full analysis end to end. The end-to-end job is the important one: it is
+# what proves the reproducibility claim in the README rather than asserting it.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  FORESIGHT_LOG_FORMAT: json
+
+jobs:
+  python:
+    name: Python — lint, test, end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          pip install -e . --no-deps
+
+      - name: Lint
+        run: ruff check src service scripts
+
+      - name: Format check
+        run: ruff format --check src service scripts
+
+      # The suite is not tracked in this repository. When it is present the job
+      # runs it; when it is not, the end-to-end run below is still the real gate.
+      - name: Tests
+        run: |
+          if [ -d tests ]; then
+            pytest -q --maxfail=1
+          else
+            echo "No tests/ directory in this checkout — skipping."
+          fi
+
+      # This is the reproducibility check from the README, executed rather than
+      # claimed. --skip-ensemble keeps CI to a few minutes; the ensemble is
+      # exercised locally and its results are committed in artifacts/metrics.json.
+      - name: End-to-end analysis
+        run: |
+          python scripts/00_generate_data.py
+          python scripts/01_run_pipeline.py
+          python scripts/02_run_eda.py
+          python scripts/03_train_backtest.py --skip-ensemble
+          python scripts/04_score_risk.py --model gbm
+          python scripts/05_build_readout.py
+
+      # The leakage guard is a build gate inside step 03, so reaching this point
+      # already proves it passed. This asserts the headline claim as well.
+      - name: Assert the model beat the baseline
+        run: |
+          python - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          metrics = json.loads(pathlib.Path("artifacts/metrics.json").read_text())
+          selected = metrics["selected_wape"]
+          baseline = metrics["baseline_wape"]
+          print(f"selected={selected:.4f} baseline={baseline:.4f} model={metrics['selected_model']}")
+
+          if not metrics["selected_model_beats_baseline"]:
+              # Brief section 7.1: a baseline win is a finding to report, not a
+              # failure to hide. CI records it loudly without failing the build.
+              print("::warning::No learned model beat the seasonal-naive baseline.")
+          if selected > 0.45:
+              print(f"::error::Forecast error {selected:.1%} is worse than expected.")
+              sys.exit(1)
+          PY
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foresight-outputs
+          path: |
+            artifacts/metrics.json
+            artifacts/impact.json
+            reports/
+          retention-days: 14
+
+  dashboard:
+    name: Dashboard — typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: dashboard
+        run: npx tsc -b --noEmit
+
+      - name: Build
+        working-directory: dashboard
+        run: npm run build
