@@ -2,7 +2,7 @@
 
 **Demand & Inventory Intelligence for NorthBay Living**
 
-A weekly, SKU-level demand forecast and an early-warning system that tells the
+A weekly, SKU level demand forecast and an early-warning system that tells the
 operations team what to reorder, what to clear, and what to leave alone — with the
 rupee value of each attached.
 
