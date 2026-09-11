@@ -43,6 +43,26 @@ export interface HistoryPoint {
   promo_days: number;
 }
 
+export interface SalesTrendPoint {
+  week_starting: string;
+  units: number;
+  revenue: number;
+  sku_count: number;
+}
+
+export interface CategoryTotal {
+  category: string;
+  units: number;
+  revenue: number;
+  sku_count: number;
+}
+
+export interface SalesTrendResponse {
+  category: string | null;
+  weeks: SalesTrendPoint[];
+  by_category: CategoryTotal[];
+}
+
 export interface BacktestPoint {
   week_starting: string;
   actual: number;
@@ -101,6 +121,43 @@ export interface SkuDetail {
   backtest: BacktestPoint[];
   forecast: ForecastPoint[];
   risk: RiskRecord | null;
+}
+
+export interface SkuForecastResponse {
+  sku_id: string;
+  category: string;
+  subcategory: string;
+  model: string;
+  origin_week: string;
+  horizon_weeks: number;
+  forecast: ForecastPoint[];
+  risk: RiskRecord | null;
+}
+
+export interface BatchForecastResponse {
+  requested: number;
+  returned: number;
+  not_found: string[];
+  results: SkuForecastResponse[];
+}
+
+/** A stock position as of right now; only `sku_id` and `on_hand_units` are required. */
+export interface LivePosition {
+  sku_id: string;
+  on_hand_units: number;
+  on_order_units?: number;
+  lead_time_days?: number;
+}
+
+export interface LiveScoreResponse {
+  scored_at: string;
+  forecast_origin_week: string;
+  forecast_age_days: number;
+  model: string;
+  requested: number;
+  returned: number;
+  not_found: string[];
+  results: RiskRecord[];
 }
 
 export interface PortfolioSummary {
@@ -262,6 +319,17 @@ export interface EvaluationResponse {
   worst_contributors: ErrorContributor[];
 }
 
+export interface AuthUser {
+  id: number;
+  email: string;
+  username: string;
+  display_name: string;
+}
+
+export interface SecurityQuestionsResponse {
+  questions: string[];
+}
+
 export interface ReadyState {
   ready: boolean;
   artifacts_loaded: string[];
@@ -410,6 +478,25 @@ export const api = {
   sku: (skuId: string) => request<SkuDetail>(`/api/sku/${encodeURIComponent(skuId)}`),
   holdout: () => request<HoldoutSummary>('/api/holdout'),
   evaluateUpload: (files: File[]) => upload<EvaluationResponse>('/api/evaluate/upload', files),
+  forecast: (skuId: string) =>
+    request<SkuForecastResponse>(`/api/forecast/${encodeURIComponent(skuId)}`),
+  forecastBatch: (skuIds: string[]) =>
+    request<BatchForecastResponse>('/api/forecast/batch', {
+      method: 'POST',
+      body: JSON.stringify({ sku_ids: skuIds }),
+    }),
+  score: (positions: LivePosition[]) =>
+    request<LiveScoreResponse>('/api/score', {
+      method: 'POST',
+      body: JSON.stringify({ positions }),
+    }),
+  salesTrend: (params: { category?: string; weeks?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (params.category) query.set('category', params.category);
+    if (params.weeks) query.set('weeks', String(params.weeks));
+    const suffix = query.toString();
+    return request<SalesTrendResponse>(`/api/sales/trend${suffix ? `?${suffix}` : ''}`);
+  },
   risk: (params: {
     action?: RiskAction | '';
     category?: string;
@@ -424,6 +511,48 @@ export const api = {
     query.set('limit', String(params.limit ?? 200));
     query.set('offset', String(params.offset ?? 0));
     return request<RiskRecord[]>(`/api/risk?${query.toString()}`);
+  },
+  auth: {
+    me: () => request<AuthUser>('/api/auth/me'),
+    securityQuestions: () => request<string[]>('/api/auth/security-questions'),
+    register: (payload: {
+      email: string;
+      username: string;
+      password: string;
+      display_name: string;
+      security_question_1: string;
+      security_answer_1: string;
+      security_question_2: string;
+      security_answer_2: string;
+    }) =>
+      request<AuthUser>('/api/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
+    login: (identifier: string, password: string) =>
+      request<AuthUser>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ identifier, password }),
+      }),
+    logout: () => request<null>('/api/auth/logout', { method: 'POST' }),
+    changePassword: (currentPassword: string, newPassword: string) =>
+      request<null>('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      }),
+    forgotPasswordQuestions: (identifier: string) =>
+      request<SecurityQuestionsResponse>('/api/auth/forgot-password/questions', {
+        method: 'POST',
+        body: JSON.stringify({ identifier }),
+      }),
+    resetPassword: (payload: {
+      identifier: string;
+      security_answer_1: string;
+      security_answer_2: string;
+      new_password: string;
+    }) =>
+      request<AuthUser>('/api/auth/forgot-password/reset', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    googleStartUrl: '/api/auth/google/start',
   },
 };
 

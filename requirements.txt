@@ -22,4 +22,8 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 # Required by FastAPI for the CSV upload on /api/evaluate/upload.
 python-multipart>=0.0.9
+# Required by pydantic's EmailStr, used to validate registration emails.
+email-validator>=2.0
+# Used to call Google's OAuth token and userinfo endpoints.
+httpx>=0.27
 joblib>=1.4

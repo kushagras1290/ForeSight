@@ -11,11 +11,39 @@ data/testsets/**/*.csv
 !data/**/.gitkeep
 !data/**/README.md
 
+# Staged copies of whichever raw extract is being compared (scripts/
+# prepare_provided_extract.py, scripts/run_source_comparison.py) - client data
+# under a different name, same confidentiality rule as data/raw/.
+data/sources/
+
+# Per-user accounts and session tokens. Never shared, never shipped with the repo -
+# a fresh clone gets its own, created empty on first run (foresight.auth.init_auth_db).
+data/auth.db
+
+# Full snapshots of each source's pipeline run, kept locally for the comparison in
+# reports/data_source_comparison.md but not meant to be pushed - same reasoning
+# as artifacts/ and data/processed/ below, just under their own run-tagged copies.
+runs/
+
 # --- Build artifacts ---------------------------------------------------------
 artifacts/*
 !artifacts/.gitkeep
 reports/figures/*
 !reports/figures/.gitkeep
+# eda_memo.md, executive_readout.pdf and data_source_comparison.md are, despite
+# being pipeline output, tracked on purpose - they are the D2/D7 deliverables
+# and the data-source decision record respectively, same reasoning as keeping
+# data/testsets/**/README.md above: documentation, not data.
+
+# The dashboard's own copy of reports/figures/, for the Executive Summary page's
+# <img> tags (a Vite public/ asset has to be a real file, not a server-side
+# redirect). Re-copy after regenerating figures: `cp reports/figures/*.png
+# dashboard/public/figures/`. Same client-data rule as reports/figures/ itself.
+dashboard/public/figures/*
+!dashboard/public/figures/.gitkeep
+
+# --- Logs ----------------------------------------------------------------------
+*.log
 
 # --- Python ------------------------------------------------------------------
 __pycache__/

@@ -36,6 +36,12 @@ PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 # annual seasonality, plus a year of holdout to be worth backtesting.
 _MIN_HISTORY_DAYS = 730
 
+# The literal defaults `google_client_id`/`google_client_secret` ship with.
+# Compared against at runtime so the service can tell "not configured yet"
+# apart from "configured with a real, working Google Cloud OAuth client".
+_PLACEHOLDER_GOOGLE_CLIENT_ID = "PLACEHOLDER_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+_PLACEHOLDER_GOOGLE_CLIENT_SECRET = "PLACEHOLDER_GOOGLE_CLIENT_SECRET"
+
 
 class Settings(BaseSettings):
     """Runtime configuration, validated once at process start.
@@ -117,6 +123,43 @@ class Settings(BaseSettings):
         description="Comma-separated browser origins allowed to call the API.",
     )
 
+    # --- Authentication ------------------------------------------------------ #
+    # Google sign-in ships with a placeholder client id/secret so the button and
+    # the callback route exist and can be reviewed end-to-end; they must be
+    # replaced with a real Google Cloud OAuth client before the flow can
+    # actually authenticate anyone. `google_oauth_configured` below is how the
+    # service tells the two states apart.
+    google_client_id: str = Field(default=_PLACEHOLDER_GOOGLE_CLIENT_ID)
+    google_client_secret: str = Field(default=_PLACEHOLDER_GOOGLE_CLIENT_SECRET)
+    google_redirect_uri: str = Field(default="http://localhost:8000/api/auth/google/callback")
+    session_ttl_days: int = Field(default=7, ge=1, le=90)
+    session_cookie_secure: bool = Field(
+        default=False,
+        description="Send the session cookie only over HTTPS. Set true in production.",
+    )
+    session_cookie_name: str = Field(
+        default="fs_session",
+        min_length=1,
+        description=(
+            "Name of the session cookie. Change this per deployment when two instances "
+            "of this service share a browser's cookie jar (e.g. two ports on localhost) - "
+            "cookies are not port-scoped, so two instances using the same name would "
+            "silently overwrite each other's session."
+        ),
+    )
+
+    # --- Multiple deployments of one codebase --------------------------------- #
+    data_root: Path | None = Field(
+        default=None,
+        description=(
+            "Where data/, artifacts/ and reports/ live. Defaults to the repo root "
+            "(PROJECT_ROOT) when unset. Overriding it lets one codebase serve more than "
+            "one independent instance - e.g. a demo instance trained on the brief's "
+            "extract, and a client instance with its own data and no shared state - "
+            "without checking out a second copy of the code."
+        ),
+    )
+
     # --- Logging ------------------------------------------------------------ #
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "console"
@@ -124,6 +167,18 @@ class Settings(BaseSettings):
     # ----------------------------------------------------------------------- #
     # Validators
     # ----------------------------------------------------------------------- #
+    @field_validator("data_root", mode="before")
+    @classmethod
+    def _blank_data_root_means_unset(cls, value: object) -> object:
+        """An empty ``FORESIGHT_DATA_ROOT=`` must mean "use the default", not
+        "use the current directory" - ``Path("")`` resolves to ``.`` and would
+        silently point every read/write at wherever the process happens to be
+        started from.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _upper_log_level(cls, value: object) -> object:
@@ -193,8 +248,19 @@ class Settings(BaseSettings):
 
     # --- Canonical paths ---------------------------------------------------- #
     @property
+    def instance_root(self) -> Path:
+        """Where this instance's data/artifacts/reports live.
+
+        ``PROJECT_ROOT`` unless ``data_root`` overrides it - see that field's
+        docstring. Code (``scripts/``, ``dashboard/dist``) always resolves
+        relative to ``PROJECT_ROOT`` regardless, since only one copy of the
+        code exists; only this instance's *state* moves.
+        """
+        return self.data_root or PROJECT_ROOT
+
+    @property
     def data_dir(self) -> Path:
-        return PROJECT_ROOT / "data"
+        return self.instance_root / "data"
 
     @property
     def raw_dir(self) -> Path:
@@ -210,15 +276,30 @@ class Settings(BaseSettings):
 
     @property
     def artifacts_dir(self) -> Path:
-        return PROJECT_ROOT / "artifacts"
+        return self.instance_root / "artifacts"
 
     @property
     def reports_dir(self) -> Path:
-        return PROJECT_ROOT / "reports"
+        return self.instance_root / "reports"
 
     @property
     def figures_dir(self) -> Path:
         return self.reports_dir / "figures"
+
+    @property
+    def auth_db_path(self) -> Path:
+        """SQLite file holding registered users and active sessions."""
+        return self.data_dir / "auth.db"
+
+    @property
+    def google_oauth_configured(self) -> bool:
+        """True once the placeholder Google client id/secret have been replaced."""
+        return (
+            self.google_client_id != _PLACEHOLDER_GOOGLE_CLIENT_ID
+            and self.google_client_secret != _PLACEHOLDER_GOOGLE_CLIENT_SECRET
+            and bool(self.google_client_id)
+            and bool(self.google_client_secret)
+        )
 
     def ensure_directories(self) -> None:
         """Create every output directory this project writes to."""

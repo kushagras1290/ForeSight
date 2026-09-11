@@ -40,10 +40,11 @@ from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile, st
 from fastapi import Path as PathParam
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from foresight import __version__
+from foresight.auth import init_auth_db
 from foresight.config import get_settings
 from foresight.evaluate import (
     MAX_UPLOAD_BYTES,
@@ -55,12 +56,14 @@ from foresight.evaluate import (
 from foresight.exceptions import DataQualityError, RiskScoringError
 from foresight.logging_setup import get_logger
 from foresight.risk import score_risk
+from service.auth_routes import auth_router, try_get_current_user
 from service.models import (
     AccuracySummary,
     ApiError,
     BacktestPoint,
     BatchForecastRequest,
     BatchForecastResponse,
+    CategoryTotal,
     Envelope,
     ErrorCode,
     ErrorContributor,
@@ -77,6 +80,8 @@ from service.models import (
     PortfolioSummary,
     ReadyResponse,
     RiskRecord,
+    SalesTrendPoint,
+    SalesTrendResponse,
     SkuDetailResponse,
     SkuForecastResponse,
     SkuSummary,
@@ -108,6 +113,24 @@ RATE_LIMIT_WINDOW_SECONDS = 60
 _REQUEST_LOG: dict[str, deque[float]] = defaultdict(deque)
 #: Bound the tracking table so a spray of spoofed IPs cannot exhaust memory.
 _MAX_TRACKED_CLIENTS = 10_000
+
+# --- Auth gate ---------------------------------------------------------------- #
+# Every /api/* path requires a valid session except these: they are how a
+# session gets established (or how a caller finds out it doesn't have one) in
+# the first place, so gating them would make it impossible to ever sign in.
+_AUTH_EXEMPT_API_PATHS: Final[frozenset[str]] = frozenset(
+    {
+        "/api/auth/register",
+        "/api/auth/login",
+        "/api/auth/logout",
+        "/api/auth/me",
+        "/api/auth/security-questions",
+        "/api/auth/forgot-password/questions",
+        "/api/auth/forgot-password/reset",
+        "/api/auth/google/start",
+        "/api/auth/google/callback",
+    }
+)
 
 
 # Product identifiers are validated at the edge rather than being allowed to
@@ -147,11 +170,19 @@ def _rate_limited(key: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Load artifacts once at startup."""
+    init_auth_db(settings)
     store = get_store(reload=True)
     app.state.store = store
     log.info(
         "service starting",
-        extra={"context": {"ready": store.ready, "missing": store.missing, "version": __version__}},
+        extra={
+            "context": {
+                "ready": store.ready,
+                "missing": store.missing,
+                "version": __version__,
+                "google_oauth_configured": settings.google_oauth_configured,
+            }
+        },
     )
     yield
     log.info("service stopping")
@@ -172,11 +203,17 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
-    allow_credentials=False,  # no cookies or auth are used; keep it off
+    # Sessions are a cookie (SESSION_COOKIE), so the browser must be allowed to
+    # send it cross-origin in development (Vite on :5173 calling the API on
+    # :8000). Safe only because allow_origins is never "*" - the two together
+    # are what a browser would otherwise refuse to combine.
+    allow_credentials=True,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
     max_age=600,
 )
+
+app.include_router(auth_router)
 
 
 # --------------------------------------------------------------------------- #
@@ -207,6 +244,23 @@ async def request_context(request: Request, call_next: Callable[[Request], Await
                 ),
             ).model_dump(mode="json"),
             headers={"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS), "X-Request-ID": request_id},
+        )
+
+    needs_session = (
+        request.url.path.startswith("/api") and request.url.path not in _AUTH_EXEMPT_API_PATHS
+    )
+    if needs_session and try_get_current_user(request) is None:
+        log.info(
+            "unauthenticated request rejected",
+            extra={"context": {"request_id": request_id, "path": request.url.path}},
+        )
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content=Envelope(
+                success=False,
+                error=ApiError(code=ErrorCode.UNAUTHORIZED, message="Sign in required."),
+            ).model_dump(mode="json"),
+            headers={"X-Request-ID": request_id},
         )
 
     response = await call_next(request)
@@ -452,6 +506,71 @@ async def list_categories(request: Request) -> Envelope[list[str]]:
     """Distinct product categories, for dashboard filters."""
     store = _store(request)
     return Envelope(data=sorted(store.sku_master["category"].unique().tolist()))
+
+
+@app.get("/api/sales/trend", response_model=Envelope[SalesTrendResponse], tags=["catalogue"])
+async def sales_trend(
+    request: Request,
+    category: str | None = Query(default=None, max_length=64),
+    weeks: int = Query(default=104, ge=1, le=520),
+) -> Envelope[SalesTrendResponse]:
+    """Portfolio-wide weekly sales trend, optionally scoped to one category.
+
+    Aggregates the same weekly panel every SKU-level route reads from - there
+    is no separate rollup artifact, so the Sales Analytics page can never
+    disagree with a product's own history chart.
+    """
+    store = _store(request)
+    # The weekly panel already carries category/subcategory per row (joined in
+    # at pipeline time) - no second join needed, and no risk of it disagreeing
+    # with what a product's own history chart shows.
+    merged = store.weekly_panel
+    if category:
+        merged = merged[merged["category"].str.casefold() == category.strip().casefold()]
+        if merged.empty:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": ErrorCode.NOT_FOUND.value,
+                    "message": f"No SKUs found in category '{category}'.",
+                },
+            )
+
+    by_category = (
+        merged.groupby("category", as_index=False)
+        .agg(units=("units", "sum"), revenue=("revenue", "sum"), sku_count=("sku_id", "nunique"))
+        .sort_values("revenue", ascending=False)
+    )
+    weekly = (
+        merged.groupby("week_start", as_index=False)
+        .agg(units=("units", "sum"), revenue=("revenue", "sum"), sku_count=("sku_id", "nunique"))
+        .sort_values("week_start")
+        .tail(weeks)
+    )
+
+    return Envelope(
+        data=SalesTrendResponse(
+            category=category,
+            weeks=[
+                SalesTrendPoint(
+                    week_starting=_as_date(row["week_start"]),
+                    units=float(row["units"]),
+                    revenue=float(row["revenue"]),
+                    sku_count=int(row["sku_count"]),
+                )
+                for row in weekly.to_dict(orient="records")
+            ],
+            by_category=[
+                CategoryTotal(
+                    category=str(row["category"]),
+                    units=float(row["units"]),
+                    revenue=float(row["revenue"]),
+                    sku_count=int(row["sku_count"]),
+                )
+                for row in by_category.to_dict(orient="records")
+            ],
+        )
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -1220,7 +1339,47 @@ async def decisioning_grid(request: Request) -> Envelope[list[dict[str, Any]]]:
 # Dashboard static files (optional single-deployable mode)
 # --------------------------------------------------------------------------- #
 _DASHBOARD_DIST = Path(__file__).resolve().parents[1] / "dashboard" / "dist"
+_DASHBOARD_INDEX = _DASHBOARD_DIST / "index.html"
+
+#: Path prefixes this service owns itself. A request under one of these that
+#: reached the catch-all matched no real route - e.g. a malformed or hostile
+#: `/api/...` path - and must 404 like any other unknown API path, never fall
+#: back to the SPA shell. Silently returning `index.html` (200) for a bad
+#: `/api/forecast/...` request would hide a real client bug behind a page that
+#: looks unrelated, and defeats path-traversal and injection probes' own tests
+#: expecting a clean 404/422 rather than a swallowed 200.
+_SERVER_OWNED_PREFIXES: Final[tuple[str, ...]] = (
+    "api/",
+    "health",
+    "ready",
+    "docs",
+    "redoc",
+    "openapi.json",
+)
+
 if _DASHBOARD_DIST.is_dir():
-    # Mounted last so it never shadows an /api or /health route.
-    app.mount("/", StaticFiles(directory=_DASHBOARD_DIST, html=True), name="dashboard")
+    # Hashed build assets (JS/CSS) get their own mount, so ordinary StaticFiles
+    # 404s stay correct for genuinely-missing files under /assets.
+    app.mount("/assets", StaticFiles(directory=_DASHBOARD_DIST / "assets"), name="dashboard-assets")
+
+    # The dashboard is a client-routed SPA (react-router): a hard refresh on
+    # e.g. /risk is a browser navigation to a path the server has never heard
+    # of. Registered last, after every /api, /health and /ready route, so it
+    # only ever catches paths nothing else claimed - never shadows the API.
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def dashboard_spa(full_path: str) -> FileResponse:
+        if not full_path.startswith(_SERVER_OWNED_PREFIXES):
+            candidate = (_DASHBOARD_DIST / full_path).resolve()
+            if candidate.is_file() and _DASHBOARD_DIST.resolve() in candidate.parents:
+                return FileResponse(candidate)
+            return FileResponse(_DASHBOARD_INDEX)
+
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": ErrorCode.NOT_FOUND.value,
+                "message": f"No route matches /{full_path}.",
+            },
+        )
+
     log.info("serving dashboard build", extra={"context": {"path": str(_DASHBOARD_DIST)}})

@@ -136,65 +136,29 @@ function ChartTooltip({
   );
 }
 
-interface SkuDetailProps {
-  skuId: string;
+interface SkuDetailContentProps {
   detail: SkuDetailData | null;
   loading: boolean;
   error: string | null;
-  onClose: () => void;
   onRetry: () => void;
 }
 
-export function SkuDetailDrawer({
-  skuId,
-  detail,
-  loading,
-  error,
-  onClose,
-  onRetry,
-}: SkuDetailProps) {
-  // Escape closes the drawer — expected of any overlay, and the only way out
-  // for a keyboard user who never reaches the close button.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
-
+/**
+ * The actual detail view: rationale, forecast chart, stock position, money.
+ *
+ * Split out from `SkuDetailDrawer` so the same content can be shown two ways —
+ * as a slide-in quick look (the drawer) or as the body of the standalone
+ * Product Details page — without the chart-building logic or markup existing
+ * in two places that could drift apart.
+ */
+export function SkuDetailContent({ detail, loading, error, onRetry }: SkuDetailContentProps) {
   const chart = useMemo(() => (detail ? buildChartRows(detail) : null), [detail]);
   const risk = detail?.risk ?? null;
   const style = risk ? ACTION_STYLE[risk.action] : null;
 
   return (
     <>
-      <div className="drawer-backdrop" onClick={onClose} aria-hidden="true" />
-      <aside
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Detail for product ${skuId}`}
-      >
-        <div className="drawer__head">
-          <div>
-            <div className="drawer__title">{skuId}</div>
-            <div className="drawer__subtitle">
-              {detail ? `${detail.category} · ${detail.subcategory}` : 'Loading…'}
-            </div>
-          </div>
-          <button
-            type="button"
-            className="drawer__close"
-            onClick={onClose}
-            aria-label="Close detail panel"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="drawer__body">
-          {error ? (
+      {error ? (
             <ErrorState message={error} onRetry={onRetry} />
           ) : loading || !detail || !chart ? (
             <>
@@ -479,6 +443,66 @@ export function SkuDetailDrawer({
               )}
             </>
           )}
+    </>
+  );
+}
+
+interface SkuDetailProps {
+  skuId: string;
+  detail: SkuDetailData | null;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onRetry: () => void;
+}
+
+/** Slide-in quick look, used from the Risk Dashboard's grid and worklist. */
+export function SkuDetailDrawer({
+  skuId,
+  detail,
+  loading,
+  error,
+  onClose,
+  onRetry,
+}: SkuDetailProps) {
+  // Escape closes the drawer — expected of any overlay, and the only way out
+  // for a keyboard user who never reaches the close button.
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <>
+      <div className="drawer-backdrop" onClick={onClose} aria-hidden="true" />
+      <aside
+        className="drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Detail for product ${skuId}`}
+      >
+        <div className="drawer__head">
+          <div>
+            <div className="drawer__title">{skuId}</div>
+            <div className="drawer__subtitle">
+              {detail ? `${detail.category} · ${detail.subcategory}` : 'Loading…'}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="drawer__close"
+            onClick={onClose}
+            aria-label="Close detail panel"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="drawer__body">
+          <SkuDetailContent detail={detail} loading={loading} error={error} onRetry={onRetry} />
         </div>
       </aside>
     </>

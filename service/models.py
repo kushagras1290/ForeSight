@@ -18,7 +18,9 @@ import re
 from enum import StrEnum
 from typing import Annotated, Any, Final, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+
+from foresight.auth import SECURITY_QUESTIONS
 
 #: Product identifier format, applied after whitespace and case normalisation.
 _SKU_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9\-_]{1,31}$")
@@ -61,6 +63,9 @@ class ErrorCode(StrEnum):
     RATE_LIMITED = "RATE_LIMITED"
     BATCH_TOO_LARGE = "BATCH_TOO_LARGE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
+    UNAUTHORIZED = "UNAUTHORIZED"
+    ALREADY_EXISTS = "ALREADY_EXISTS"
+    OAUTH_ERROR = "OAUTH_ERROR"
 
 
 class ApiError(BaseModel):
@@ -391,6 +396,41 @@ class HistoryPoint(BaseModel):
     promo_days: float
 
 
+class SalesTrendPoint(BaseModel):
+    """One week of sales, aggregated across every SKU in scope."""
+
+    model_config = ConfigDict(frozen=True)
+
+    week_starting: dt.date
+    units: float
+    revenue: float
+    sku_count: int
+
+
+class CategoryTotal(BaseModel):
+    """Total units/revenue for one category over the returned window."""
+
+    model_config = ConfigDict(frozen=True)
+
+    category: str
+    units: float
+    revenue: float
+    sku_count: int
+
+
+class SalesTrendResponse(BaseModel):
+    """Portfolio-wide weekly sales trend, optionally scoped to one category.
+
+    Built by aggregating the same weekly panel every SKU-level route reads
+    from, so it can never disagree with the per-product history shown
+    elsewhere on the dashboard.
+    """
+
+    category: str | None = None
+    weeks: list[SalesTrendPoint]
+    by_category: list[CategoryTotal]
+
+
 class BacktestPoint(BaseModel):
     """One backtested forecast against the actual that followed."""
 
@@ -496,3 +536,89 @@ class HoldoutSummary(BaseModel):
     by_horizon: list[dict[str, Any]] = Field(default_factory=list)
     #: Per-SKU scorecard, worst first, so a reviewer starts where it went wrong.
     skus: list[dict[str, Any]] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# Authentication
+# --------------------------------------------------------------------------- #
+#: Letters, digits and underscores only - keeps a username safe to display
+#: and to derive from an email's local part without further escaping.
+_USERNAME_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9_]{3,32}$")
+
+
+class RegisterRequest(BaseModel):
+    """Create a new password-based account.
+
+    Two independent security questions are required (see
+    :mod:`foresight.auth`'s module docstring for why) - both are needed to
+    reset the password later, so registration must collect both up front.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr
+    username: Annotated[str, Field(pattern=_USERNAME_PATTERN.pattern)]
+    password: Annotated[str, Field(min_length=8, max_length=256)]
+    display_name: Annotated[str, Field(min_length=1, max_length=80)]
+    security_question_1: Literal[SECURITY_QUESTIONS]
+    security_answer_1: Annotated[str, Field(min_length=1, max_length=200)]
+    security_question_2: Literal[SECURITY_QUESTIONS]
+    security_answer_2: Annotated[str, Field(min_length=1, max_length=200)]
+
+    @model_validator(mode="after")
+    def _questions_must_differ(self) -> RegisterRequest:
+        if self.security_question_1 == self.security_question_2:
+            raise ValueError("Choose two different security questions.")
+        return self
+
+
+class LoginRequest(BaseModel):
+    """Sign in with a password. ``identifier`` accepts an email or a username."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: Annotated[str, Field(min_length=1, max_length=254)]
+    password: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class UserResponse(BaseModel):
+    """The signed-in account, with nothing secret attached."""
+
+    id: int
+    email: str
+    username: str
+    display_name: str
+
+
+class ChangePasswordRequest(BaseModel):
+    """Replace the signed-in account's password."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: Annotated[str, Field(min_length=1, max_length=256)]
+    new_password: Annotated[str, Field(min_length=8, max_length=256)]
+
+
+class ForgotPasswordQuestionsRequest(BaseModel):
+    """Step 1 of password recovery: look up the questions for an account."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: Annotated[str, Field(min_length=1, max_length=254)]
+
+
+class SecurityQuestionsResponse(BaseModel):
+    """The two security questions on file, in the order they must be answered."""
+
+    questions: Annotated[list[str], Field(min_length=2, max_length=2)]
+
+
+class ResetPasswordRequest(BaseModel):
+    """Step 2 of password recovery: answer both questions to set a new password."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: Annotated[str, Field(min_length=1, max_length=254)]
+    security_answer_1: Annotated[str, Field(min_length=1, max_length=200)]
+    security_answer_2: Annotated[str, Field(min_length=1, max_length=200)]
+    new_password: Annotated[str, Field(min_length=8, max_length=256)]

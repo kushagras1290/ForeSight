@@ -1040,3 +1040,145 @@
   height: 46px;
   margin-bottom: 2px;
 }
+
+/* ============================================================================
+   Primary navigation — one row of routed pages, under the header
+   ========================================================================== */
+.nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: var(--header-height);
+  z-index: 30;
+}
+
+.nav__inner {
+  display: flex;
+  gap: var(--space-5);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nav__inner::-webkit-scrollbar {
+  display: none;
+}
+
+.nav__link {
+  padding: var(--space-3) 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  white-space: nowrap;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.nav__link:hover {
+  color: var(--ink);
+}
+
+.nav__link.active {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--ember-600);
+}
+
+/* ============================================================================
+   Home — nav cards
+   ========================================================================== */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-4);
+}
+
+.nav-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.nav-card:hover {
+  border-color: var(--harbour-border);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+.nav-card__title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.nav-card__body {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  line-height: 1.55;
+}
+
+.nav-card__arrow {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-5);
+  color: var(--harbour-500);
+  font-size: 14px;
+}
+
+/* ============================================================================
+   Executive summary
+   ========================================================================== */
+.exec-section {
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--rule);
+}
+
+.exec-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-left: 1.3em;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  max-width: 78ch;
+}
+
+.exec-list--numbered {
+  list-style: decimal;
+}
+
+.exec-list:not(.exec-list--numbered) {
+  list-style: disc;
+}
+
+.card-grid--figures {
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+.exec-figure {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.exec-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.exec-figure figcaption {
+  padding: var(--space-3) var(--space-4);
+  font-size: 11.5px;
+  color: var(--ink-3);
+  border-top: 1px solid var(--rule);
+}

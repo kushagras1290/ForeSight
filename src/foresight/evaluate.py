@@ -167,6 +167,12 @@ FORECAST_TARGET_ALIASES: Final[tuple[str, ...]] = (
 MAX_UPLOAD_BYTES: Final[int] = 8 * 1024 * 1024
 MAX_ROWS: Final[int] = 100_000
 
+#: SKUs returned in ``worst_contributors``, worst first. High enough to cover
+#: every SKU in a realistic catalogue (the brief's own extract tops out at
+#: ~200) rather than truncating to a "top few" - the dashboard's test-results
+#: view is a full exploration, not a highlight reel.
+MAX_WORST_CONTRIBUTORS: Final[int] = 200
+
 
 @dataclass(slots=True)
 class EvaluationResult:
@@ -701,7 +707,7 @@ def evaluate_actuals(
             absolute_error=("absolute_error", "sum"),
         )
         .sort_values("absolute_error", ascending=False)
-        .head(15)
+        .head(MAX_WORST_CONTRIBUTORS)
     )
     total_error = float(matched["absolute_error"].sum())
     worst["share_of_total_error"] = (

@@ -18,23 +18,35 @@ Hierarchy::
     |   +-- ModelNotFittedError       predict() called before fit()
     |   +-- ArtifactNotFoundError     a trained artifact is missing on disk
     +-- RiskScoringError          risk layer could not produce a decision
+    +-- AuthError                 sign-in / session handling failed
+        +-- InvalidCredentialsError   identifier or password did not match
+        +-- UserAlreadyExistsError    email or username already registered
+        +-- SessionExpiredError       session token unknown, expired or revoked
+        +-- OAuthConfigurationError   Google sign-in not configured (placeholder creds)
+        +-- OAuthExchangeError        Google rejected the code/token exchange
 """
 
 from __future__ import annotations
 
 __all__ = [
     "ArtifactNotFoundError",
+    "AuthError",
     "ConfigurationError",
     "DataError",
     "DataQualityError",
     "ForesightError",
     "InsufficientHistoryError",
+    "InvalidCredentialsError",
     "LeakageError",
     "MissingDataFileError",
     "ModelError",
     "ModelNotFittedError",
+    "OAuthConfigurationError",
+    "OAuthExchangeError",
     "RiskScoringError",
     "SchemaValidationError",
+    "SessionExpiredError",
+    "UserAlreadyExistsError",
 ]
 
 
@@ -122,3 +134,35 @@ class ArtifactNotFoundError(ModelError):
 # --------------------------------------------------------------------------- #
 class RiskScoringError(ForesightError):
     """The risk layer could not turn a forecast into a decision."""
+
+
+# --------------------------------------------------------------------------- #
+# Authentication
+# --------------------------------------------------------------------------- #
+class AuthError(ForesightError):
+    """Base class for sign-in and session failures."""
+
+
+class InvalidCredentialsError(AuthError):
+    """The identifier/password pair did not match any account.
+
+    Deliberately raised for both "no such user" and "wrong password" with the
+    same message, so a caller cannot enumerate which registered emails exist
+    by watching which error comes back.
+    """
+
+
+class UserAlreadyExistsError(AuthError):
+    """Registration was attempted with an email or username already taken."""
+
+
+class SessionExpiredError(AuthError):
+    """The session token is unknown to the store, expired, or was revoked."""
+
+
+class OAuthConfigurationError(AuthError):
+    """Google sign-in was attempted without real OAuth credentials configured."""
+
+
+class OAuthExchangeError(AuthError):
+    """Google rejected the authorization code or the userinfo request."""
