@@ -25,6 +25,10 @@ data/auth.db
 # as artifacts/ and data/processed/ below, just under their own run-tagged copies.
 runs/
 
+# Ad-hoc, isolated FORESIGHT_DATA_ROOT runs (e.g. one-off benchmarks against a
+# supplied dataset) - same reasoning as runs/ above, kept locally only.
+runs_manual/
+
 # --- Build artifacts ---------------------------------------------------------
 artifacts/*
 !artifacts/.gitkeep
