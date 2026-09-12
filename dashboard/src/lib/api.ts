@@ -339,6 +339,101 @@ export interface ReadyState {
   skus: number;
 }
 
+export interface ProductPerformanceRow {
+  sku_id: string;
+  category: string;
+  subcategory: string;
+  total_revenue: number;
+  total_units: number;
+  revenue_share: number;
+  recent_trend_pct: number;
+  action: RiskAction | 'unknown';
+  action_label: string;
+  value_at_stake: number;
+}
+
+export interface ProductPerformanceResponse {
+  category: string | null;
+  rows: ProductPerformanceRow[];
+  total_skus: number;
+}
+
+export interface RevenueConcentrationPoint {
+  sku_fraction: number;
+  sku_count: number;
+  revenue_share: number;
+}
+
+export interface DeadStockRow {
+  sku_id: string;
+  category: string;
+  subcategory: string;
+  consecutive_zero_weeks: number;
+  last_sale_week: string | null;
+}
+
+export interface MoverRow {
+  sku_id: string;
+  category: string;
+  recent_revenue: number;
+  prior_revenue: number;
+  change_pct: number;
+}
+
+export interface BusinessInsightsResponse {
+  total_revenue: number;
+  total_skus: number;
+  revenue_concentration: RevenueConcentrationPoint[];
+  dead_stock: DeadStockRow[];
+  top_gainers: MoverRow[];
+  top_decliners: MoverRow[];
+}
+
+export interface PromotionCategoryStat {
+  category: string;
+  has_own_curve: boolean;
+  uplift_by_discount: Record<string, number>;
+  post_promo_dip_factor: number;
+}
+
+export interface PromotionResponseData {
+  available: boolean;
+  reason: string | null;
+  baseline_window: number;
+  dip_weeks: number;
+  pooled: PromotionCategoryStat | null;
+  categories: PromotionCategoryStat[];
+}
+
+export interface SeasonalIndexPoint {
+  iso_week: number;
+  index: number;
+}
+
+export interface SeasonalityResponse {
+  available: boolean;
+  reason: string | null;
+  global_index: SeasonalIndexPoint[];
+  by_category: Record<string, SeasonalIndexPoint[]>;
+}
+
+export interface ModelBenchmarkRow {
+  model: string;
+  description: string;
+  wape: number | null;
+  bias_relative: number | null;
+  n_observations: number | null;
+  note: string | null;
+}
+
+export interface ModelBenchmarkResponse {
+  available: boolean;
+  reason: string | null;
+  folds: number;
+  no_drivers: boolean;
+  rows: ModelBenchmarkRow[];
+}
+
 /* ========================================================================== */
 /* Client                                                                      */
 /* ========================================================================== */
@@ -512,6 +607,30 @@ export const api = {
     query.set('offset', String(params.offset ?? 0));
     return request<RiskRecord[]>(`/api/risk?${query.toString()}`);
   },
+  productPerformance: (
+    params: { category?: string; sort?: string; limit?: number; offset?: number } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (params.category) query.set('category', params.category);
+    if (params.sort) query.set('sort', params.sort);
+    query.set('limit', String(params.limit ?? 200));
+    query.set('offset', String(params.offset ?? 0));
+    return request<ProductPerformanceResponse>(`/api/products/performance?${query.toString()}`);
+  },
+  businessInsights: () => request<BusinessInsightsResponse>('/api/insights/business'),
+  promotions: (params: { category?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.category) query.set('category', params.category);
+    const suffix = query.toString();
+    return request<PromotionResponseData>(`/api/promotions${suffix ? `?${suffix}` : ''}`);
+  },
+  seasonality: (params: { category?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.category) query.set('category', params.category);
+    const suffix = query.toString();
+    return request<SeasonalityResponse>(`/api/seasonality${suffix ? `?${suffix}` : ''}`);
+  },
+  modelBenchmark: () => request<ModelBenchmarkResponse>('/api/models/benchmark'),
   auth: {
     me: () => request<AuthUser>('/api/auth/me'),
     securityQuestions: () => request<string[]>('/api/auth/security-questions'),

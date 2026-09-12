@@ -5,12 +5,13 @@
  * gate; everything else is wrapped in `RequireAuth`, which redirects to
  * /login unless a session is present, then `Layout`, which loads core data
  * once via `useForesightData` and gates every page behind the same
- * readiness/error states. Each page answers one question a stakeholder asks:
- * Home ("where do things stand"), Sales Analytics ("what's selling"), Demand
- * Forecast ("what will we sell, and can I trust it"), Inventory ("what do I
- * have, right now"), Risk Dashboard ("what do I reorder and what do I
- * clear"), Product Details ("tell me about this one SKU"), Executive Summary
- * ("the whole engagement, presented"), and Account ("who am I signed in as").
+ * readiness/error states.
+ *
+ * 14 sidebar destinations, each answering one question a stakeholder asks —
+ * see `components/Layout.tsx`'s `NAV_GROUPS` for the grouping. Product
+ * Details (`/products/:skuId?`) is a drill-down destination linked from
+ * every table row rather than its own sidebar entry, superseded by Product
+ * Performance as the portfolio-wide entry point.
  */
 
 import { Route, Routes } from 'react-router-dom';
@@ -19,11 +20,20 @@ import { Layout } from './components/Layout';
 import { RequireAuth } from './components/RequireAuth';
 import { Home } from './pages/Home';
 import { SalesAnalytics } from './pages/SalesAnalytics';
+import { ProductPerformance } from './pages/ProductPerformance';
+import { CategoryPerformance } from './pages/CategoryPerformance';
 import { DemandForecast } from './pages/DemandForecast';
+import { ModelBenchmark } from './pages/ModelBenchmark';
 import { InventoryDashboard } from './pages/InventoryDashboard';
-import { RiskDashboard } from './pages/RiskDashboard';
+import { StockoutRisk } from './pages/StockoutRisk';
+import { Overstock } from './pages/Overstock';
+import { Watchlist } from './pages/Watchlist';
+import { PromotionDashboard } from './pages/PromotionDashboard';
+import { SeasonalityDashboard } from './pages/SeasonalityDashboard';
+import { BusinessInsights } from './pages/BusinessInsights';
 import { ProductDetails } from './pages/ProductDetails';
-import { ExecutiveSummary } from './pages/ExecutiveSummary';
+import { ExecutiveDashboard } from './pages/ExecutiveDashboard';
+import { ExecutiveRecommendation } from './pages/ExecutiveRecommendation';
 import { TestResults } from './pages/TestResults';
 import { Account } from './pages/Account';
 import { Login } from './pages/Login';
@@ -44,13 +54,22 @@ export default function App() {
       <Route element={<RequireAuth />}>
         <Route element={<Layout />}>
           <Route index element={<Home />} />
+          <Route path="executive-dashboard" element={<ExecutiveDashboard />} />
+          <Route path="executive-recommendation" element={<ExecutiveRecommendation />} />
           <Route path="sales-analytics" element={<SalesAnalytics />} />
+          <Route path="product-performance" element={<ProductPerformance />} />
+          <Route path="category-performance" element={<CategoryPerformance />} />
           <Route path="demand-forecast" element={<DemandForecast />} />
+          <Route path="model-benchmark" element={<ModelBenchmark />} />
           <Route path="inventory" element={<InventoryDashboard />} />
-          <Route path="risk" element={<RiskDashboard />} />
+          <Route path="risk/stockout" element={<StockoutRisk />} />
+          <Route path="risk/overstock" element={<Overstock />} />
+          <Route path="risk/watchlist" element={<Watchlist />} />
+          <Route path="promotions" element={<PromotionDashboard />} />
+          <Route path="seasonality" element={<SeasonalityDashboard />} />
+          <Route path="business-insights" element={<BusinessInsights />} />
           <Route path="products" element={<ProductDetails />} />
           <Route path="products/:skuId" element={<ProductDetails />} />
-          <Route path="executive-summary" element={<ExecutiveSummary />} />
           <Route path="test-results" element={<TestResults />} />
           <Route path="account" element={<Account />} />
         </Route>

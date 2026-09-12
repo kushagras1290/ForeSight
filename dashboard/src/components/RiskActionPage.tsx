@@ -1,29 +1,49 @@
 /**
- * Risk Dashboard: the decisioning view, promoted from the old single-page
- * app's "Plan" tab to its own route. Same three pieces (filter legend,
- * stockout/overstock grid, priority worklist), unchanged, because they were
- * already built for exactly this question — what do I reorder, what do I
- * clear.
+ * Shared shape for the three risk-action pages split out of the old single
+ * Risk Dashboard: Stockout Risk, Overstock, and Watchlist. Each is the same
+ * grid + worklist + drawer, differing only by which `action` it's locked to
+ * — so this is the one place that logic lives, and each page is a thin
+ * wrapper naming its own action, copy, and page-eyebrow.
+ *
+ * Unlike the combined Risk Dashboard, there is no action toggle here — the
+ * action is the page. The grid still shows every product (so a Stockout Risk
+ * page has the same context a planner had on the combined page), it just
+ * comes pre-highlighted via `activeAction`; only the worklist and its count
+ * are filtered to this page's action specifically.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ApiError, api, type RiskAction, type RiskRecord, type SkuDetail } from '../lib/api';
-import { useCoreData } from '../components/Layout';
-import { DecisionGrid } from '../components/DecisionGrid';
-import { FilterBar } from '../components/FilterBar';
-import { ErrorState } from '../components/States';
-import { NoDataYet } from '../components/NoDataYet';
-import { SkuDetailDrawer } from '../components/SkuDetail';
-import { Worklist } from '../components/Worklist';
+import { useCoreData } from './Layout';
+import { DecisionGrid } from './DecisionGrid';
+import { ErrorState } from './States';
+import { NoDataYet } from './NoDataYet';
+import { SkuDetailDrawer } from './SkuDetail';
+import { Worklist } from './Worklist';
 
 const RISK_HIGH_THRESHOLD = 0.5;
 const SEARCH_DEBOUNCE_MS = 250;
 
-export function RiskDashboard() {
+interface RiskActionPageProps {
+  action: RiskAction;
+  eyebrow: string;
+  title: string;
+  note: string;
+  emptyTitle: string;
+  emptyBody: string;
+}
+
+export function RiskActionPage({
+  action,
+  eyebrow,
+  title,
+  note,
+  emptyTitle,
+  emptyBody,
+}: RiskActionPageProps) {
   const { core, ready } = useCoreData();
 
-  const [action, setAction] = useState<RiskAction | ''>('');
   const [category, setCategory] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -93,22 +113,17 @@ export function RiskDashboard() {
   }, []);
 
   const clearFilters = useCallback(() => {
-    setAction('');
     setCategory('');
     setSearchInput('');
     setSearch('');
   }, []);
 
-  const hasFilters = action !== '' || category !== '' || search !== '';
+  const hasFilters = category !== '' || search !== '';
 
   if (!ready?.ready || !core) {
     return (
       <section className="section">
-        <NoDataYet
-          title="No risk scoring trained yet"
-          body="This instance has no forecast or inventory data to plot. Once real data has been run through the pipeline, every product will show up here."
-          missing={ready?.artifacts_missing}
-        />
+        <NoDataYet title={emptyTitle} body={emptyBody} missing={ready?.artifacts_missing} />
       </section>
     );
   }
@@ -117,14 +132,10 @@ export function RiskDashboard() {
     <>
       <section className="section">
         <div className="section__head">
-          <p className="eyebrow">Decisioning view</p>
-          <h2 className="section__title">Where every product sits</h2>
-          <p className="section__note">
-            Risk of running out, against risk of being left holding stock.
-          </p>
+          <p className="eyebrow">{eyebrow}</p>
+          <h2 className="section__title">{title}</h2>
+          <p className="section__note">{note}</p>
         </div>
-
-        <FilterBar summary={core.summary} active={action} onChange={setAction} />
 
         <div className="grid-panel">
           <DecisionGrid

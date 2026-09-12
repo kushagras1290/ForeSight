@@ -18,24 +18,69 @@ interface NavCard {
 
 const CARDS: NavCard[] = [
   {
+    to: '/executive-dashboard',
+    title: 'Executive Dashboard',
+    body: 'The engagement end to end — problem, data, model, results.',
+  },
+  {
     to: '/sales-analytics',
     title: 'Sales Analytics',
     body: 'Weekly units and revenue across the portfolio, by category.',
   },
   {
+    to: '/product-performance',
+    title: 'Product Performance',
+    body: 'Every SKU ranked by revenue, units, trend, and risk action.',
+  },
+  {
+    to: '/category-performance',
+    title: 'Category Performance',
+    body: 'Revenue and risk mix, one category at a time.',
+  },
+  {
     to: '/demand-forecast',
-    title: 'Demand Forecast',
+    title: 'Forecast Dashboard',
     body: 'The forward forecast for any product, and how accurate it has been.',
   },
   {
+    to: '/model-benchmark',
+    title: 'Model Benchmark',
+    body: 'Every forecasting method this project has, scored side by side.',
+  },
+  {
     to: '/inventory',
-    title: 'Inventory',
+    title: 'Inventory Dashboard',
     body: 'Stock position, cover, and a live what-if against a different count.',
   },
   {
-    to: '/risk',
-    title: 'Risk Dashboard',
-    body: 'Every SKU plotted by stockout risk against overstock risk.',
+    to: '/risk/stockout',
+    title: 'Stockout Risk',
+    body: 'Products likely to run out over their lead time.',
+  },
+  {
+    to: '/risk/overstock',
+    title: 'Overstock',
+    body: 'Products likely to be left holding excess stock.',
+  },
+  {
+    to: '/risk/watchlist',
+    title: 'Watchlist',
+    body: 'Products where the forecast itself is too volatile to call confidently.',
+  },
+  {
+    to: '/promotions',
+    title: 'Promotion Dashboard',
+    body: 'The fitted promotional uplift and post-promotion dip, per category.',
+  },
+  {
+    to: '/seasonality',
+    title: 'Seasonality Dashboard',
+    body: "The model's actual seasonal curve, global and per category.",
+  },
+  {
+    to: '/business-insights',
+    title: 'Business Insights',
+    body: 'Revenue concentration, dead stock, and top movers.',
   },
   {
     to: '/products',
@@ -43,9 +88,9 @@ const CARDS: NavCard[] = [
     body: 'Look up one SKU: history, forecast, rationale, and what it is worth.',
   },
   {
-    to: '/executive-summary',
-    title: 'Executive Summary',
-    body: 'The engagement end to end — problem, data, model, results.',
+    to: '/executive-recommendation',
+    title: 'Executive Recommendation',
+    body: 'What this does not do, and where to take it next.',
   },
 ];
 

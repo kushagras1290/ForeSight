@@ -48,6 +48,16 @@ _ARTIFACTS: dict[str, tuple[str, bool]] = {
     "metrics_by_horizon": ("artifacts/metrics_by_horizon.parquet", False),
     "metrics_by_category": ("artifacts/metrics_by_category.parquet", False),
     "metrics_by_regime": ("artifacts/metrics_by_regime.parquet", False),
+    # Produced by scripts/11_fit_promotion_response.py and
+    # scripts/12_extract_seasonal_profile.py respectively. Both optional: the
+    # service works without them, the Promotion/Seasonality dashboard pages
+    # just report themselves not-available-yet until those scripts are run.
+    "promotion_response": ("artifacts/promotion_response.json", False),
+    "seasonal_profile": ("artifacts/seasonal_profile.json", False),
+    # Produced by scripts/10_run_all_models.py. Optional: the service works
+    # without it, the Model Benchmark dashboard page just reports itself
+    # not-available-yet until that script is run.
+    "model_benchmark": ("artifacts/all_models_comparison.json", False),
 }
 
 
@@ -73,6 +83,9 @@ class ArtifactStore:
     impact: dict[str, Any] = field(default_factory=dict)
     metrics: dict[str, Any] = field(default_factory=dict)
     holdout_metrics: dict[str, Any] = field(default_factory=dict)
+    promotion_response: dict[str, Any] = field(default_factory=dict)
+    seasonal_profile: dict[str, Any] = field(default_factory=dict)
+    model_benchmark: dict[str, Any] = field(default_factory=dict)
 
     # Fast lookups built once at load time.
     _risk_by_sku: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -185,6 +198,9 @@ def _load(settings: Settings) -> ArtifactStore:
     store.impact = payloads.get("impact", {})
     store.metrics = payloads.get("metrics", {})
     store.holdout_metrics = payloads.get("holdout_metrics", {})
+    store.promotion_response = payloads.get("promotion_response", {})
+    store.seasonal_profile = payloads.get("seasonal_profile", {})
+    store.model_benchmark = payloads.get("model_benchmark", {})
 
     # --- Build lookups ------------------------------------------------------ #
     if not store.risk_table.empty:

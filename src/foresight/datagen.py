@@ -244,98 +244,190 @@ def _build_calendar(start: dt.date, end: dt.date) -> pd.DataFrame:
 # --------------------------------------------------------------------------- #
 # SKU master
 # --------------------------------------------------------------------------- #
-def _build_sku_master(rng: np.random.Generator, n_skus: int, start: dt.date) -> pd.DataFrame:
-    """Build the product dimension plus hidden per-SKU demand parameters."""
+#: Genuinely volatile SKUs get their residual noise drawn from here instead of
+#: the steady-catalogue range below - a Gamma shape this low has a
+#: coefficient of variation of 1/sqrt(shape) ~= 0.3-0.55 from the noise term
+#: alone, before the demand shocks in `_simulate_demand` are even applied.
+_VOLATILE_DISPERSION_RANGE: Final[tuple[float, float]] = (3.0, 12.0)
+#: Steady-catalogue residual noise: tight on purpose (see the inline comment
+#: at its use below) - the point of the volatile archetype is that a *minority*
+#: of SKUs deliberately fall outside that assumption.
+_STEADY_DISPERSION_RANGE: Final[tuple[float, float]] = (60.0, 220.0)
+
+
+#: Each cohort's size is jittered by up to this many SKUs either way, so a
+#: catalogue configured for "40-50 new products a year" actually varies year
+#: to year the way a real assortment-planning cycle does, rather than adding
+#: an identical round number every single year.
+_COHORT_SIZE_JITTER: Final[int] = 5
+
+
+def _launch_cohorts(
+    rng: np.random.Generator, n_initial: int, new_per_year: int, start: dt.date, end: dt.date
+) -> list[tuple[int, pd.Timestamp | None]]:
+    """How many SKUs launch in the initial cohort, and in each yearly cohort.
+
+    Returns a list of ``(count, cohort_anchor)`` pairs. ``cohort_anchor`` is
+    ``None`` for the initial cohort (it uses the existing pre-window/early/
+    thin-history mix below, unchanged) and the year boundary's timestamp for
+    every subsequent cohort.
+    """
+    cohorts: list[tuple[int, pd.Timestamp | None]] = [(n_initial, None)]
+    if new_per_year <= 0:
+        return cohorts
+
+    year = 1
+    anchor = pd.Timestamp(start) + pd.DateOffset(years=year)
+    while anchor <= pd.Timestamp(end):
+        jitter = int(rng.integers(-_COHORT_SIZE_JITTER, _COHORT_SIZE_JITTER + 1))
+        cohorts.append((max(1, new_per_year + jitter), anchor))
+        year += 1
+        anchor = pd.Timestamp(start) + pd.DateOffset(years=year)
+    return cohorts
+
+
+def _build_sku_master(
+    rng: np.random.Generator,
+    n_skus: int,
+    start: dt.date,
+    *,
+    end: dt.date,
+    new_skus_per_year: int = 0,
+    volatile_share: float = 0.06,
+) -> pd.DataFrame:
+    """Build the product dimension plus hidden per-SKU demand parameters.
+
+    ``new_skus_per_year`` models a catalogue that grows every year rather than
+    launching all at once: on top of the ``n_skus`` initial cohort, that many
+    more SKUs are added at each subsequent year boundary within
+    ``[start, end]``, so a 15-year window with ``new_skus_per_year=40`` adds
+    roughly 14 further cohorts of 40.
+    """
+    cohorts = _launch_cohorts(rng, n_skus, new_skus_per_year, start, end)
+    total_skus = sum(count for count, _ in cohorts)
+
     # Weight categories so the assortment looks like a real home-goods catalogue.
     weights = np.array([0.20, 0.16, 0.22, 0.20, 0.12, 0.10])
-    categories = rng.choice(CANONICAL_CATEGORIES, size=n_skus, p=weights)
+    categories = rng.choice(CANONICAL_CATEGORIES, size=total_skus, p=weights)
 
     records: list[dict[str, object]] = []
     per_category_counter: dict[str, int] = dict.fromkeys(CANONICAL_CATEGORIES, 0)
+    index = 0
 
-    for index in range(n_skus):
-        category = str(categories[index])
-        per_category_counter[category] += 1
-        sku_id = f"NBL-{CATEGORY_CODES[category]}-{per_category_counter[category]:03d}"
-        subcategory = str(rng.choice(CANONICAL_SUBCATEGORIES[category]))
+    for cohort_count, cohort_anchor in cohorts:
+        for _ in range(cohort_count):
+            category = str(categories[index])
+            index += 1
+            per_category_counter[category] += 1
+            sku_id = f"NBL-{CATEGORY_CODES[category]}-{per_category_counter[category]:04d}"
+            subcategory = str(rng.choice(CANONICAL_SUBCATEGORIES[category]))
 
-        # Launch cohorts. A real catalogue is not all mature: products are added
-        # continuously, and the newest ones are the hardest to forecast because
-        # their own history is too short to lag. Section 16.2 of the brief calls
-        # this out directly, so the assortment has to actually contain some.
-        #
-        # ~74% predate the window, ~16% launch early inside it (mature by the
-        # end), and ~10% launch in the final year - the genuinely thin-history
-        # cohort. The last range is chosen so those products still have fewer
-        # than 26 weeks of history at the backtest origins, which is what makes
-        # the new-SKU path reachable rather than theoretical.
-        draw = rng.random()
-        if draw < 0.74:
-            launch = pd.Timestamp(start) - pd.Timedelta(days=int(rng.integers(200, 1500)))
-        elif draw < 0.90:
-            launch = pd.Timestamp(start) + pd.Timedelta(days=int(rng.integers(30, 700)))
-        else:
-            launch = pd.Timestamp(start) + pd.Timedelta(days=int(rng.integers(1010, 1250)))
+            if cohort_anchor is None:
+                # Launch cohorts. A real catalogue is not all mature: products are
+                # added continuously, and the newest ones are the hardest to
+                # forecast because their own history is too short to lag. Section
+                # 16.2 of the brief calls this out directly, so the assortment has
+                # to actually contain some.
+                #
+                # ~74% predate the window, ~16% launch early inside it (mature by
+                # the end), and ~10% launch in the final year - the genuinely
+                # thin-history cohort. The last range is chosen so those products
+                # still have fewer than 26 weeks of history at the backtest
+                # origins, which is what makes the new-SKU path reachable rather
+                # than theoretical.
+                draw = rng.random()
+                if draw < 0.74:
+                    launch = pd.Timestamp(start) - pd.Timedelta(days=int(rng.integers(200, 1500)))
+                elif draw < 0.90:
+                    launch = pd.Timestamp(start) + pd.Timedelta(days=int(rng.integers(30, 700)))
+                else:
+                    launch = pd.Timestamp(start) + pd.Timedelta(days=int(rng.integers(1010, 1250)))
+            else:
+                # A later cohort's launches spread across their own year rather
+                # than all landing on one day, +/- 2 months either side of the
+                # anchor so some straddle the year boundary itself.
+                launch = cohort_anchor + pd.Timedelta(days=int(rng.integers(-60, 60)))
 
-        cost = float(rng.lognormal(mean=np.log(CATEGORY_COST_MEDIAN[category]), sigma=0.45))
-        cost = float(np.clip(round(cost, 2), 80.0, 40_000.0))
-        list_price = round(cost * float(rng.uniform(1.85, 3.15)), 2)
+            cost = float(rng.lognormal(mean=np.log(CATEGORY_COST_MEDIAN[category]), sigma=0.45))
+            cost = float(np.clip(round(cost, 2), 80.0, 40_000.0))
+            list_price = round(cost * float(rng.uniform(1.85, 3.15)), 2)
 
-        # --- Hidden demand parameters (never written to the extract) -------- #
-        # NOTE: these are named `param_*` rather than `_*` on purpose.
-        # DataFrame.itertuples() renames any column that is not a valid Python
-        # identifier - which includes anything starting with an underscore - to a
-        # positional name like `_7`. Attribute access would silently break.
-        base_demand = float(rng.lognormal(mean=np.log(6.0), sigma=1.05))
-        # Yearly log-drift. ~12% of the catalogue is genuinely dying: at
-        # -1.3/year a SKU retains exp(-1.3 * 3.6) ~= 1% of its launch volume by
-        # the end of the window, which is what real dead stock looks like.
-        if rng.random() < 0.12:
-            trend = float(rng.uniform(-1.30, -0.60))
-        else:
-            trend = float(rng.normal(0.05, 0.22))
-        # Residual dispersion: the part of demand no recorded driver explains.
-        # Deliberately far tighter than a bare Gamma-Poisson mixture, because
-        # most of what looks like noise in a thin extract is really the effect
-        # of commercial activity that a D2C brand does record - media spend,
-        # discount depth, site traffic, competitor pricing. Those live in the
-        # driver tables below and appear as real columns; only what is left
-        # after them is randomness. See DRIVER TABLES in the module docstring.
-        dispersion = float(rng.uniform(60.0, 220.0))
-        # Slow movers sell on only a fraction of days.
-        intermittency = float(np.clip(rng.beta(6.0, 2.0), 0.08, 1.0))
-        promo_affinity = float(np.clip(rng.normal(1.0, 0.35), 0.15, 2.2))
+            # --- Hidden demand parameters (never written to the extract) ---- #
+            # NOTE: these are named `param_*` rather than `_*` on purpose.
+            # DataFrame.itertuples() renames any column that is not a valid
+            # Python identifier - which includes anything starting with an
+            # underscore - to a positional name like `_7`. Attribute access
+            # would silently break.
+            base_demand = float(rng.lognormal(mean=np.log(6.0), sigma=1.05))
+            # Yearly log-drift. ~12% of the catalogue is genuinely dying: at
+            # -1.3/year a SKU retains exp(-1.3 * 3.6) ~= 1% of its launch volume
+            # by the end of the window, which is what real dead stock looks like.
+            if rng.random() < 0.12:
+                trend = float(rng.uniform(-1.30, -0.60))
+            else:
+                trend = float(rng.normal(0.05, 0.22))
 
-        # --- Commercial sensitivities ---------------------------------------- #
-        # How strongly this product responds to each recorded driver.
-        marketing_elasticity = float(np.clip(rng.normal(0.34, 0.12), 0.05, 0.70))
-        price_elasticity = float(np.clip(rng.normal(2.10, 0.65), 0.60, 4.00))
-        competitor_sensitivity = float(np.clip(rng.normal(0.55, 0.22), 0.05, 1.20))
-        weather_sensitivity = float(np.clip(rng.normal(0.0, 0.30), -0.80, 0.80))
-        # Baseline weekly media spend, in rupees, that the elasticity is scaled
-        # against. Roughly proportional to the product's own volume.
-        media_reference = float(base_demand * rng.uniform(900.0, 2600.0))
+            # A minority of the catalogue is genuinely volatile: erratic demand
+            # that no recorded driver explains, rather than merely intermittent
+            # or slow-moving. This is what the risk model's "watch - volatile"
+            # quadrant exists to flag, and it needs real examples in the
+            # generated data to ever be reachable instead of theoretical - see
+            # the module docstring and `_simulate_demand`'s shock term below.
+            is_volatile = rng.random() < volatile_share
+            if is_volatile:
+                dispersion = float(rng.uniform(*_VOLATILE_DISPERSION_RANGE))
+                shock_rate = float(rng.uniform(0.012, 0.035))
+                shock_scale = float(rng.uniform(1.8, 3.5))
+            else:
+                # Residual dispersion: the part of demand no recorded driver
+                # explains. Deliberately far tighter than a bare Gamma-Poisson
+                # mixture, because most of what looks like noise in a thin
+                # extract is really the effect of commercial activity that a
+                # D2C brand does record - media spend, discount depth, site
+                # traffic, competitor pricing. Those live in the driver tables
+                # below and appear as real columns; only what is left after
+                # them is randomness. See DRIVER TABLES in the module
+                # docstring.
+                dispersion = float(rng.uniform(*_STEADY_DISPERSION_RANGE))
+                shock_rate = 0.0
+                shock_scale = 1.0
 
-        records.append(
-            {
-                "sku_id": sku_id,
-                "category": category,
-                "subcategory": subcategory,
-                "launch_date": launch,
-                "unit_cost": cost,
-                "list_price": list_price,
-                "param_base_demand": base_demand,
-                "param_trend": trend,
-                "param_dispersion": dispersion,
-                "param_intermittency": intermittency,
-                "param_promo_affinity": promo_affinity,
-                "param_marketing_elasticity": marketing_elasticity,
-                "param_price_elasticity": price_elasticity,
-                "param_competitor_sensitivity": competitor_sensitivity,
-                "param_weather_sensitivity": weather_sensitivity,
-                "param_media_reference": media_reference,
-            }
-        )
+            # Slow movers sell on only a fraction of days.
+            intermittency = float(np.clip(rng.beta(6.0, 2.0), 0.08, 1.0))
+            promo_affinity = float(np.clip(rng.normal(1.0, 0.35), 0.15, 2.2))
+
+            # --- Commercial sensitivities ------------------------------------ #
+            # How strongly this product responds to each recorded driver.
+            marketing_elasticity = float(np.clip(rng.normal(0.34, 0.12), 0.05, 0.70))
+            price_elasticity = float(np.clip(rng.normal(2.10, 0.65), 0.60, 4.00))
+            competitor_sensitivity = float(np.clip(rng.normal(0.55, 0.22), 0.05, 1.20))
+            weather_sensitivity = float(np.clip(rng.normal(0.0, 0.30), -0.80, 0.80))
+            # Baseline weekly media spend, in rupees, that the elasticity is
+            # scaled against. Roughly proportional to the product's own volume.
+            media_reference = float(base_demand * rng.uniform(900.0, 2600.0))
+
+            records.append(
+                {
+                    "sku_id": sku_id,
+                    "category": category,
+                    "subcategory": subcategory,
+                    "launch_date": launch,
+                    "unit_cost": cost,
+                    "list_price": list_price,
+                    "param_base_demand": base_demand,
+                    "param_trend": trend,
+                    "param_dispersion": dispersion,
+                    "param_intermittency": intermittency,
+                    "param_promo_affinity": promo_affinity,
+                    "param_marketing_elasticity": marketing_elasticity,
+                    "param_price_elasticity": price_elasticity,
+                    "param_competitor_sensitivity": competitor_sensitivity,
+                    "param_weather_sensitivity": weather_sensitivity,
+                    "param_media_reference": media_reference,
+                    "param_shock_rate": shock_rate,
+                    "param_shock_scale": shock_scale,
+                }
+            )
 
     return pd.DataFrame.from_records(records)
 
@@ -352,6 +444,8 @@ HIDDEN_PARAM_COLUMNS: Final[tuple[str, ...]] = (
     "param_competitor_sensitivity",
     "param_weather_sensitivity",
     "param_media_reference",
+    "param_shock_rate",
+    "param_shock_scale",
 )
 
 
@@ -593,6 +687,27 @@ def _simulate_demand(
             * weather_multiplier
         )
         mean_demand = np.clip(mean_demand, 0.0, None)
+
+        # --- Demand shocks: genuinely volatile SKUs only ---------------------- #
+        # A viral mention, a competitor's stockout redirecting demand, a data
+        # glitch - real events with no recorded driver, deliberately independent
+        # of every multiplier above so no feature could ever explain them away.
+        # `param_shock_rate` is 0.0 for every SKU except the volatile minority
+        # (see `_build_sku_master`), so this is a no-op for the rest of the
+        # catalogue.
+        if row.param_shock_rate > 0.0:
+            shocked = rng.random(n_days) < row.param_shock_rate
+            spike = rng.random(n_days) < 0.5
+            shock_multiplier = np.where(
+                shocked,
+                np.where(
+                    spike,
+                    rng.uniform(1.6, row.param_shock_scale * 2.0, size=n_days),
+                    rng.uniform(0.05, 0.5, size=n_days),
+                ),
+                1.0,
+            )
+            mean_demand = mean_demand * shock_multiplier
 
         # --- Stochastic layer: Gamma-Poisson mixture => negative binomial --- #
         # Only what the drivers above do NOT explain.
@@ -972,7 +1087,14 @@ def build_extracts(
 
     calendar_end = settings.history_end + dt.timedelta(days=CALENDAR_FORWARD_DAYS)
     calendar = _build_calendar(settings.history_start, calendar_end)
-    sku_master = _build_sku_master(rng, settings.n_skus, settings.history_start)
+    sku_master = _build_sku_master(
+        rng,
+        settings.n_skus,
+        settings.history_start,
+        end=settings.history_end,
+        new_skus_per_year=settings.new_skus_per_year,
+        volatile_share=settings.volatile_sku_share,
+    )
 
     # Driver tables first: demand is generated *from* them, so they have to
     # exist before the sales ledger does.

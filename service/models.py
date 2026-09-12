@@ -539,6 +539,165 @@ class HoldoutSummary(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Product performance / business insights
+# --------------------------------------------------------------------------- #
+class ProductPerformanceRow(BaseModel):
+    """One SKU's revenue/units rollup, recent trend, and current risk action."""
+
+    model_config = ConfigDict(frozen=True)
+
+    sku_id: str
+    category: str
+    subcategory: str
+    total_revenue: float
+    total_units: float
+    revenue_share: float = Field(description="This SKU's share of total portfolio revenue.")
+    recent_trend_pct: float = Field(
+        description="Last 8 weeks' revenue vs. the 8 weeks before that, as a fraction."
+    )
+    action: str
+    action_label: str
+    value_at_stake: float
+
+
+class ProductPerformanceResponse(BaseModel):
+    """Portfolio-wide, sortable per-SKU performance leaderboard."""
+
+    category: str | None = None
+    rows: list[ProductPerformanceRow]
+    total_skus: int
+
+
+class RevenueConcentrationPoint(BaseModel):
+    """Share of total revenue the top X% of SKUs (by revenue) account for."""
+
+    model_config = ConfigDict(frozen=True)
+
+    sku_fraction: float
+    sku_count: int
+    revenue_share: float
+
+
+class DeadStockRow(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    sku_id: str
+    category: str
+    subcategory: str
+    consecutive_zero_weeks: int
+    last_sale_week: str | None = None
+
+
+class MoverRow(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    sku_id: str
+    category: str
+    recent_revenue: float
+    prior_revenue: float
+    change_pct: float
+
+
+class BusinessInsightsResponse(BaseModel):
+    """Revenue concentration, dead stock, and top movers.
+
+    No customer entity exists in any extract this project has (every source is
+    SKU/week grained), so this is scoped to business insights derivable from
+    what's actually here rather than a customer segmentation this data cannot
+    support.
+    """
+
+    total_revenue: float
+    total_skus: int
+    revenue_concentration: list[RevenueConcentrationPoint]
+    dead_stock: list[DeadStockRow]
+    top_gainers: list[MoverRow]
+    top_decliners: list[MoverRow]
+
+
+class PromotionCategoryStat(BaseModel):
+    """One category's (or the pooled/all-category) fitted promotional response."""
+
+    model_config = ConfigDict(frozen=True)
+
+    category: str
+    has_own_curve: bool
+    uplift_by_discount: dict[str, float] = Field(
+        description="Multiplicative uplift at sample discount depths, e.g. {'20pct': 1.8}."
+    )
+    post_promo_dip_factor: float
+
+
+class PromotionResponseModel(BaseModel):
+    """Custom model 5's fitted response, read back from its persisted artifact.
+
+    ``available=False`` (with ``reason``) until
+    ``scripts/11_fit_promotion_response.py`` has been run - this is honest
+    degradation, not an error, matching :class:`HoldoutSummary`.
+    """
+
+    available: bool
+    reason: str | None = None
+    baseline_window: int = 0
+    dip_weeks: int = 0
+    pooled: PromotionCategoryStat | None = None
+    categories: list[PromotionCategoryStat] = Field(default_factory=list)
+
+
+class SeasonalIndexPoint(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    iso_week: int
+    index: float
+
+
+class SeasonalityResponse(BaseModel):
+    """The Adaptive Ensemble's fitted seasonal index, read back from its artifact.
+
+    ``available=False`` (with ``reason``) until
+    ``scripts/12_extract_seasonal_profile.py`` has been run.
+    """
+
+    available: bool
+    reason: str | None = None
+    global_index: list[SeasonalIndexPoint] = Field(default_factory=list)
+    by_category: dict[str, list[SeasonalIndexPoint]] = Field(default_factory=dict)
+
+
+class ModelBenchmarkRow(BaseModel):
+    """One model's row in the all-models comparison - shape varies by model.
+
+    A standard forecasting model has `wape`/`bias_relative`/`n_observations`;
+    a measured-effect custom model (not scored on WAPE by design, see
+    `reports/model_suite.md` #7) has `wape=None` and its effect described in
+    `note` instead.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    description: str
+    wape: float | None = None
+    bias_relative: float | None = None
+    n_observations: int | None = None
+    note: str | None = None
+
+
+class ModelBenchmarkResponse(BaseModel):
+    """The full model comparison, read back from `scripts/10_run_all_models.py`'s
+    artifact.
+
+    ``available=False`` (with ``reason``) until that script has been run.
+    """
+
+    available: bool
+    reason: str | None = None
+    folds: int = 0
+    no_drivers: bool = False
+    rows: list[ModelBenchmarkRow] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
 # Authentication
 # --------------------------------------------------------------------------- #
 #: Letters, digits and underscores only - keeps a username safe to display

@@ -54,6 +54,7 @@ from foresight.evaluate import (
     parse_forecast_csv,
 )
 from foresight.exceptions import DataQualityError, RiskScoringError
+from foresight.insights import compute_business_insights, compute_product_performance
 from foresight.logging_setup import get_logger
 from foresight.risk import score_risk
 from service.auth_routes import auth_router, try_get_current_user
@@ -63,7 +64,9 @@ from service.models import (
     BacktestPoint,
     BatchForecastRequest,
     BatchForecastResponse,
+    BusinessInsightsResponse,
     CategoryTotal,
+    DeadStockRow,
     Envelope,
     ErrorCode,
     ErrorContributor,
@@ -77,11 +80,21 @@ from service.models import (
     LiveScoreRequest,
     LiveScoreResponse,
     MetricBlock,
+    ModelBenchmarkResponse,
+    ModelBenchmarkRow,
+    MoverRow,
     PortfolioSummary,
+    ProductPerformanceResponse,
+    ProductPerformanceRow,
+    PromotionCategoryStat,
+    PromotionResponseModel,
     ReadyResponse,
+    RevenueConcentrationPoint,
     RiskRecord,
     SalesTrendPoint,
     SalesTrendResponse,
+    SeasonalIndexPoint,
+    SeasonalityResponse,
     SkuDetailResponse,
     SkuForecastResponse,
     SkuSummary,
@@ -569,6 +582,257 @@ async def sales_trend(
                 )
                 for row in by_category.to_dict(orient="records")
             ],
+        )
+    )
+
+
+#: sort= value -> (dataframe column, ascending). Validated at the edge so an
+#: unknown value is a clear 422 rather than a silent no-op sort.
+_PRODUCT_PERFORMANCE_SORTS: Final[dict[str, tuple[str, bool]]] = {
+    "revenue_desc": ("total_revenue", False),
+    "units_desc": ("total_units", False),
+    "trend_desc": ("recent_trend_pct", False),
+    "trend_asc": ("recent_trend_pct", True),
+    "value_at_stake_desc": ("value_at_stake", False),
+}
+
+
+@app.get(
+    "/api/products/performance",
+    response_model=Envelope[ProductPerformanceResponse],
+    tags=["catalogue"],
+)
+async def product_performance(
+    request: Request,
+    category: str | None = Query(default=None, max_length=64),
+    sort: str = Query(default="revenue_desc", max_length=32),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> Envelope[ProductPerformanceResponse]:
+    """Portfolio-wide, sortable per-SKU performance leaderboard."""
+    if sort not in _PRODUCT_PERFORMANCE_SORTS:
+        raise HTTPException(
+            status_code=HTTP_422,
+            detail={
+                "code": ErrorCode.VALIDATION_ERROR.value,
+                "message": (
+                    f"Unknown sort '{sort}'. Valid values: "
+                    f"{sorted(_PRODUCT_PERFORMANCE_SORTS)}."
+                ),
+            },
+        )
+    store = _store(request)
+    table = compute_product_performance(store.weekly_panel, store.risk_table)
+    if category:
+        table = table[table["category"].str.casefold() == category.strip().casefold()]
+
+    total = len(table)
+    column, ascending = _PRODUCT_PERFORMANCE_SORTS[sort]
+    table = table.sort_values(column, ascending=ascending).iloc[offset : offset + limit]
+
+    return Envelope(
+        data=ProductPerformanceResponse(
+            category=category,
+            total_skus=total,
+            rows=[
+                ProductPerformanceRow(
+                    sku_id=str(row["sku_id"]),
+                    category=str(row["category"]),
+                    subcategory=str(row["subcategory"]),
+                    total_revenue=float(row["total_revenue"]),
+                    total_units=float(row["total_units"]),
+                    revenue_share=float(row["revenue_share"]),
+                    recent_trend_pct=float(row["recent_trend_pct"]),
+                    action=str(row["action"]),
+                    action_label=str(row["action_label"]),
+                    value_at_stake=float(row["value_at_stake"]),
+                )
+                for row in table.to_dict(orient="records")
+            ],
+        )
+    )
+
+
+@app.get(
+    "/api/insights/business",
+    response_model=Envelope[BusinessInsightsResponse],
+    tags=["catalogue"],
+)
+async def business_insights(request: Request) -> Envelope[BusinessInsightsResponse]:
+    """Revenue concentration, dead stock, and top movers across the portfolio."""
+    store = _store(request)
+    insights = compute_business_insights(store.weekly_panel)
+    return Envelope(
+        data=BusinessInsightsResponse(
+            total_revenue=insights.total_revenue,
+            total_skus=insights.total_skus,
+            revenue_concentration=[
+                RevenueConcentrationPoint(
+                    sku_fraction=point.sku_fraction,
+                    sku_count=point.sku_count,
+                    revenue_share=point.revenue_share,
+                )
+                for point in insights.revenue_concentration
+            ],
+            dead_stock=[
+                DeadStockRow(
+                    sku_id=row.sku_id,
+                    category=row.category,
+                    subcategory=row.subcategory,
+                    consecutive_zero_weeks=row.consecutive_zero_weeks,
+                    last_sale_week=row.last_sale_week,
+                )
+                for row in insights.dead_stock
+            ],
+            top_gainers=[
+                MoverRow(
+                    sku_id=row.sku_id,
+                    category=row.category,
+                    recent_revenue=row.recent_revenue,
+                    prior_revenue=row.prior_revenue,
+                    change_pct=row.change_pct,
+                )
+                for row in insights.top_gainers
+            ],
+            top_decliners=[
+                MoverRow(
+                    sku_id=row.sku_id,
+                    category=row.category,
+                    recent_revenue=row.recent_revenue,
+                    prior_revenue=row.prior_revenue,
+                    change_pct=row.change_pct,
+                )
+                for row in insights.top_decliners
+            ],
+        )
+    )
+
+
+def _promotion_category_stat(payload: dict[str, Any]) -> PromotionCategoryStat:
+    return PromotionCategoryStat(
+        category=str(payload["category"]),
+        has_own_curve=bool(payload["has_own_curve"]),
+        uplift_by_discount=dict(payload["uplift_by_discount"]),
+        post_promo_dip_factor=float(payload["post_promo_dip_factor"]),
+    )
+
+
+@app.get(
+    "/api/promotions",
+    response_model=Envelope[PromotionResponseModel],
+    tags=["catalogue"],
+)
+async def promotions(
+    request: Request, category: str | None = Query(default=None, max_length=64)
+) -> Envelope[PromotionResponseModel]:
+    """Custom model 5's fitted promotional uplift/dip, per category.
+
+    Degrades honestly (``available=False``) rather than 404ing when
+    ``scripts/11_fit_promotion_response.py`` hasn't been run yet - matching
+    :class:`HoldoutSummary`'s pattern for an optional artifact.
+    """
+    store = _store(request)
+    payload = store.promotion_response
+    if not payload:
+        return Envelope(
+            data=PromotionResponseModel(
+                available=False,
+                reason="Not computed yet. Run scripts/11_fit_promotion_response.py.",
+            )
+        )
+
+    categories = [_promotion_category_stat(entry) for entry in payload.get("categories", [])]
+    if category:
+        needle = category.strip().casefold()
+        categories = [entry for entry in categories if entry.category.casefold() == needle]
+
+    return Envelope(
+        data=PromotionResponseModel(
+            available=True,
+            baseline_window=int(payload.get("baseline_window", 0)),
+            dip_weeks=int(payload.get("dip_weeks", 0)),
+            pooled=_promotion_category_stat(payload["pooled"]) if payload.get("pooled") else None,
+            categories=categories,
+        )
+    )
+
+
+@app.get(
+    "/api/seasonality",
+    response_model=Envelope[SeasonalityResponse],
+    tags=["catalogue"],
+)
+async def seasonality(
+    request: Request, category: str | None = Query(default=None, max_length=64)
+) -> Envelope[SeasonalityResponse]:
+    """The Adaptive Ensemble's fitted seasonal index, global and per category.
+
+    Degrades honestly (``available=False``) rather than 404ing when
+    ``scripts/12_extract_seasonal_profile.py`` hasn't been run yet.
+    """
+    store = _store(request)
+    payload = store.seasonal_profile
+    if not payload:
+        return Envelope(
+            data=SeasonalityResponse(
+                available=False,
+                reason="Not computed yet. Run scripts/12_extract_seasonal_profile.py.",
+            )
+        )
+
+    by_category_raw: dict[str, list[dict[str, Any]]] = payload.get("by_category", {})
+    if category:
+        needle = category.strip().casefold()
+        matched = next((key for key in by_category_raw if key.casefold() == needle), None)
+        by_category_raw = {matched: by_category_raw[matched]} if matched else {}
+
+    return Envelope(
+        data=SeasonalityResponse(
+            available=True,
+            global_index=[
+                SeasonalIndexPoint(iso_week=int(point["iso_week"]), index=float(point["index"]))
+                for point in payload.get("global_index", [])
+            ],
+            by_category={
+                key: [
+                    SeasonalIndexPoint(
+                        iso_week=int(point["iso_week"]), index=float(point["index"])
+                    )
+                    for point in points
+                ]
+                for key, points in by_category_raw.items()
+            },
+        )
+    )
+
+
+@app.get(
+    "/api/models/benchmark",
+    response_model=Envelope[ModelBenchmarkResponse],
+    tags=["catalogue"],
+)
+async def model_benchmark(request: Request) -> Envelope[ModelBenchmarkResponse]:
+    """The full 16-model accuracy comparison, read back from its artifact.
+
+    Degrades honestly (``available=False``) rather than 404ing when
+    ``scripts/10_run_all_models.py`` hasn't been run yet.
+    """
+    store = _store(request)
+    payload = store.model_benchmark
+    if not payload:
+        return Envelope(
+            data=ModelBenchmarkResponse(
+                available=False,
+                reason="Not computed yet. Run scripts/10_run_all_models.py.",
+            )
+        )
+
+    return Envelope(
+        data=ModelBenchmarkResponse(
+            available=True,
+            folds=int(payload.get("folds", 0)),
+            no_drivers=bool(payload.get("no_drivers", False)),
+            rows=[ModelBenchmarkRow(**row) for row in payload.get("models", [])],
         )
     )
 

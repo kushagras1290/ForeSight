@@ -1,26 +1,26 @@
 /**
- * Executive Summary Dashboard: the engagement told end to end, in the order a
+ * Executive Dashboard: the engagement told end to end, in the order a
  * stakeholder presentation would use — problem, client, data, cleaning, EDA,
- * model, performance, risk scoring, then what we recommend. Numbers that can
- * change with the data (accuracy, rupee exposure) are read live from the API
- * so this page can never drift from what the rest of the dashboard shows;
- * numbers that don't change with the data (the model's architecture) are
- * condensed from `reports/model_architecture.md` and `model_suite.md`.
+ * model, performance, risk scoring. Numbers that can change with the data
+ * (accuracy, rupee exposure) are read live from the API so this page can
+ * never drift from what the rest of the dashboard shows; numbers that don't
+ * change with the data (the model's architecture) are condensed from
+ * `reports/model_architecture.md` and `model_suite.md`.
+ *
+ * Recommendations, limitations, and next steps live on their own page,
+ * Executive Recommendation — split out because they are a different kind of
+ * content (a call to action, not a record of what was built) and a
+ * stakeholder skimming this page shouldn't have to scroll past eight
+ * sections of background to find them.
  */
 
-import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
 import { useCoreData } from '../components/Layout';
 import { AccuracyPanel } from '../components/AccuracyPanel';
+import { ExecSection } from '../components/ExecSection';
 import { NoDataYet } from '../components/NoDataYet';
-import {
-  formatDate,
-  formatInr,
-  formatPercent,
-  formatSignedPercent,
-  formatWape,
-} from '../lib/format';
+import { formatDate, formatInr, formatPercent } from '../lib/format';
 
 const FIGURES = [
   { file: '01_demand_over_time.png', caption: 'Demand over time — the seasonal swing' },
@@ -31,31 +31,7 @@ const FIGURES = [
   { file: '06_data_quality.png', caption: 'Data quality issues found and resolved' },
 ];
 
-function Section({
-  index,
-  eyebrow,
-  title,
-  children,
-}: {
-  index: number;
-  eyebrow: string;
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="section exec-section">
-      <div className="section__head">
-        <p className="eyebrow">
-          {index}. {eyebrow}
-        </p>
-        <h2 className="section__title">{title}</h2>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-export function ExecutiveSummary() {
+export function ExecutiveDashboard() {
   const { core, ready } = useCoreData();
 
   if (!ready?.ready || !core) {
@@ -85,7 +61,11 @@ export function ExecutiveSummary() {
         </p>
       </section>
 
-      <Section index={1} eyebrow="Business problem" title="Guessing how much to stock, twice a month">
+      <ExecSection
+        index={1}
+        eyebrow="Business problem"
+        title="Guessing how much to stock, twice a month"
+      >
         <p className="callout" style={{ maxWidth: 'none' }}>
           NorthBay Living plans inventory on gut feel and spreadsheets. Every month they stock
           out of things people want — a lost sale they can never recover — and sit on things
@@ -95,9 +75,9 @@ export function ExecutiveSummary() {
           we can clear them — in something the team can read without a data scientist in the
           room.
         </p>
-      </Section>
+      </ExecSection>
 
-      <Section index={2} eyebrow="Client background" title="NorthBay Living">
+      <ExecSection index={2} eyebrow="Client background" title="NorthBay Living">
         <div className="stat-grid">
           <div className="stat">
             <div className="stat__label">Business</div>
@@ -126,9 +106,9 @@ export function ExecutiveSummary() {
             <div className="stat__hint">Head of Operations is the primary client</div>
           </div>
         </div>
-      </Section>
+      </ExecSection>
 
-      <Section index={3} eyebrow="Dataset" title="What we worked from">
+      <ExecSection index={3} eyebrow="Dataset" title="What we worked from">
         <p className="section__note" style={{ maxWidth: 'none' }}>
           Four extracts, matching the brief's data dictionary: a daily sales fact table, a
           product master, a promotion &amp; holiday calendar, and periodic inventory snapshots.
@@ -138,9 +118,9 @@ export function ExecutiveSummary() {
           <span className="mono">reports/data_source_comparison.md</span>. The provided extract
           is what this dashboard currently serves.
         </p>
-      </Section>
+      </ExecSection>
 
-      <Section index={4} eyebrow="Data cleaning" title="It was not clean on arrival">
+      <ExecSection index={4} eyebrow="Data cleaning" title="It was not clean on arrival">
         <p className="section__note" style={{ maxWidth: 'none' }}>
           An automated pipeline profiles every table on arrival, resolves each issue by a
           documented rule, and records why — so the memo can never drift from the code. Recurring
@@ -151,9 +131,9 @@ export function ExecutiveSummary() {
           (explicitly zero-filled rather than left null). Full detail in{' '}
           <span className="mono">reports/eda_memo.md</span> §1.
         </p>
-      </Section>
+      </ExecSection>
 
-      <Section index={5} eyebrow="EDA insights" title="What the demand data says">
+      <ExecSection index={5} eyebrow="EDA insights" title="What the demand data says">
         <div className="card-grid card-grid--figures">
           {FIGURES.map((figure) => (
             <figure key={figure.file} className="exec-figure">
@@ -162,9 +142,9 @@ export function ExecutiveSummary() {
             </figure>
           ))}
         </div>
-      </Section>
+      </ExecSection>
 
-      <Section index={6} eyebrow="Forecast model" title="The Adaptive Demand Ensemble">
+      <ExecSection index={6} eyebrow="Forecast model" title="The Adaptive Demand Ensemble">
         <p className="section__note" style={{ maxWidth: 'none' }}>
           Five purpose-built models, each targeting a specific failure mode a single global
           forecaster can't cover on its own: a LightGBM gradient booster for steady demand, a
@@ -177,13 +157,13 @@ export function ExecutiveSummary() {
           kept for appearances — detail in <span className="mono">reports/model_suite.md</span>{' '}
           and <span className="mono">reports/model_architecture.md</span>.
         </p>
-      </Section>
+      </ExecSection>
 
-      <Section index={7} eyebrow="Model performance" title="Can you trust it">
+      <ExecSection index={7} eyebrow="Model performance" title="Can you trust it">
         <AccuracyPanel accuracy={accuracy} />
-      </Section>
+      </ExecSection>
 
-      <Section index={8} eyebrow="Risk scoring" title="Turning a forecast into a decision">
+      <ExecSection index={8} eyebrow="Risk scoring" title="Turning a forecast into a decision">
         <p className="section__note" style={{ maxWidth: 'none' }}>
           Every SKU is scored for stockout risk (forecast demand over lead time against on-hand +
           on-order stock) and overstock risk (weeks of cover against a threshold), then given one
@@ -215,67 +195,21 @@ export function ExecutiveSummary() {
           </div>
         </div>
         <p style={{ marginTop: 'var(--space-4)' }}>
-          <Link to="/risk" className="button button--ghost">
-            Open the full Risk Dashboard →
+          <Link to="/risk/stockout" className="button button--ghost">
+            Open the Stockout Risk Dashboard →
           </Link>
         </p>
-      </Section>
+      </ExecSection>
 
-      <Section index={9} eyebrow="Being straight with you" title="What this does not do">
-        <ul className="exec-list">
-          <li>
-            The forecast is wrong by about {formatWape(accuracy.selected_wape)} of demand on
-            average — good for weekly product-level forecasting, not precision. Treat it as a
-            prioritised starting point, not an instruction.
-          </li>
-          <li>
-            Slow-moving products forecast far worse than fast ones; they're flagged separately
-            rather than hidden inside the average.
-          </li>
-          <li>
-            We cannot see demand that occurred while a product was out of stock — recorded demand
-            is a floor, and stockout risk is, if anything, understated for the SKUs that run out
-            most often.
-          </li>
-          <li>Stock positions are weekly snapshots, not live — use the Inventory page's what-if scorer for anything that has moved since.</li>
-          <li>
-            The stated 80% prediction interval assumes weeks are independent; in practice errors
-            persist somewhat week to week, so the true range is a little wider than shown.
-          </li>
-        </ul>
-      </Section>
-
-      <Section index={10} eyebrow="Where to go next" title="Our recommendations">
-        <ol className="exec-list exec-list--numbered">
-          <li>
-            <strong>Now:</strong> work the reorder list top-down —{' '}
-            {formatPercent(summary.top_10_share_of_revenue_at_risk, 0)} of the sales at risk sits
-            in the top 10 exposures.
-          </li>
-          <li>
-            <strong>Now:</strong> agree a markdown plan for the dead stock before it costs another
-            month of warehouse space and cash.
-          </li>
-          <li>
-            <strong>This month:</strong> fix the data problems at source — zero-sale-day exports,
-            de-duplicated re-runs, validated lead times on entry — instead of repairing them every
-            pipeline run.
-          </li>
-          <li>
-            <strong>This quarter:</strong> re-run monthly and track drift; retrain if average
-            error climbs past ~35%.
-          </li>
-          <li>
-            <strong>Later:</strong> feed confirmed promotions in earlier — the further ahead
-            they're known, the more accurate the festive forecast becomes.
-          </li>
-        </ol>
-        <p className="callout" style={{ maxWidth: 'none', marginTop: 'var(--space-4)' }}>
-          The dashboard and the scoring service are live and NorthBay's to use without us — model{' '}
-          {summary.model}, {formatSignedPercent(-accuracy.improvement_vs_baseline)} vs. the
-          seasonal-naive baseline it has to beat.
+      <section className="section">
+        <p className="callout" style={{ maxWidth: 'none' }}>
+          Continue to{' '}
+          <Link to="/executive-recommendation" className="button button--ghost">
+            Executive Recommendation →
+          </Link>{' '}
+          for what this does not do and where to go next.
         </p>
-      </Section>
+      </section>
     </>
   );
 }

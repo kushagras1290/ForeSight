@@ -32,6 +32,16 @@ import numpy as np
 import pandas as pd
 
 from foresight.baseline import naive_last_value_forecast, seasonal_naive_forecast
+from foresight.benchmarks import (
+    fit_predict_arima,
+    fit_predict_catboost,
+    fit_predict_ets,
+    fit_predict_linear_regression,
+    fit_predict_prophet,
+    fit_predict_random_forest,
+    fit_predict_sarima,
+    fit_predict_xgboost,
+)
 from foresight.config import Settings, get_settings
 from foresight.custom_model import AdaptiveDemandEnsemble, train_ensemble
 from foresight.exceptions import InsufficientHistoryError
@@ -44,6 +54,20 @@ from foresight.metrics import (
     interval_coverage,
     metrics_by_group,
     pinball_loss,
+)
+
+#: Benchmark candidates' names as they appear in reports, in a fixed order so
+#: every output (fold logs, the summary payload, the comparison report) lists
+#: them the same way.
+BENCHMARK_MODEL_NAMES: tuple[str, ...] = (
+    "arima",
+    "sarima",
+    "ets",
+    "prophet",
+    "linear_regression",
+    "random_forest",
+    "xgboost",
+    "catboost",
 )
 
 __all__ = ["BacktestResult", "FoldResult", "run_backtest", "select_origins"]
@@ -63,6 +87,7 @@ class FoldResult:
     baseline: ForecastMetrics
     naive: ForecastMetrics
     ensemble: ForecastMetrics | None = None
+    benchmarks: dict[str, ForecastMetrics] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
@@ -76,6 +101,8 @@ class FoldResult:
             "gbm_bias_relative": round(self.model.bias_relative, 6),
             "baseline_bias_relative": round(self.baseline.bias_relative, 6),
         }
+        for name, metrics in self.benchmarks.items():
+            payload[f"{name}_wape"] = round(metrics.wape, 6)
         if self.ensemble is not None:
             payload["ensemble_wape"] = round(self.ensemble.wape, 6)
             payload["ensemble_bias_relative"] = round(self.ensemble.bias_relative, 6)
@@ -99,11 +126,22 @@ class BacktestResult:
     ensemble_interval_coverage: float = float("nan")
     by_regime: pd.DataFrame = field(default_factory=pd.DataFrame)
     settings_snapshot: dict[str, Any] = field(default_factory=dict)
+    #: The 4 standard-library benchmarks (ARIMA, ETS, linear regression, random
+    #: forest), keyed by name. Deliberately kept out of `candidates` below:
+    #: they exist to answer "how would a well-known method have done here",
+    #: not to compete for which model ships - `04_score_risk.py` only knows
+    #: how to serve a `TrainedForecaster` or an `AdaptiveDemandEnsemble`, so a
+    #: benchmark winning on WAPE must never make it `selected_model`.
+    benchmarks: dict[str, ForecastMetrics] = field(default_factory=dict)
 
     # ------------------------------------------------------------------ #
     @property
     def candidates(self) -> dict[str, ForecastMetrics]:
-        """Every forecast in contention, keyed by the name used in reports."""
+        """Forecasts eligible to ship, keyed by the name used in reports.
+
+        See the `benchmarks` field docstring for why the 4 standard-library
+        comparison models are excluded from this property specifically.
+        """
         entries = {
             "seasonal_naive": self.baseline,
             "lightgbm": self.model,
@@ -111,6 +149,12 @@ class BacktestResult:
         if self.ensemble is not None:
             entries["adaptive_ensemble"] = self.ensemble
         return entries
+
+    @property
+    def all_models(self) -> dict[str, ForecastMetrics]:
+        """Every model this backtest scored, including the non-shippable
+        benchmarks - for reporting/comparison, never for model selection."""
+        return {**self.candidates, "naive_last_value": self.naive, **self.benchmarks}
 
     @property
     def best_wape(self) -> float:
@@ -255,6 +299,7 @@ def run_backtest(
     *,
     params: dict[str, Any] | None = None,
     include_ensemble: bool = True,
+    include_benchmarks: bool = False,
     feature_spec: FeatureSpec = FEATURE_SPEC,
 ) -> tuple[BacktestResult, TrainedForecaster, AdaptiveDemandEnsemble | None]:
     """Run rolling-origin cross-validation over every candidate forecast.
@@ -269,6 +314,15 @@ def run_backtest(
         settings: Configuration.
         params: LightGBM overrides.
         include_ensemble: Whether to fit and score the adaptive ensemble.
+        include_benchmarks: Whether to also fit and score the 8 standard
+            comparison models (:mod:`foresight.benchmarks`) on these same
+            folds. Off by default - fitting a per-SKU ARIMA, SARIMA, ETS and
+            Prophet model for every SKU on every fold multiplies the runtime
+            of an already expensive backtest, and the normal training/serving
+            path
+            (`scripts/03_train_backtest.py`, `04_score_risk.py`) has no use
+            for them. Turned on explicitly by
+            `scripts/10_run_all_models.py`.
         feature_spec: The feature contract to train against. Must match the
             contract the supervised frame was built under - passing the
             driver-extended spec against a history-only frame fails loudly in
@@ -355,6 +409,24 @@ def run_backtest(
             fold_frame["regime"] = ensemble_predictions["regime"].to_numpy()
             ensemble_metrics = evaluate_forecast(actual, ensemble_predictions["prediction"])
 
+        benchmark_metrics: dict[str, ForecastMetrics] = {}
+        if include_benchmarks:
+            benchmark_predictions = {
+                "arima": fit_predict_arima(panel, test, origin),
+                "sarima": fit_predict_sarima(panel, test, origin),
+                "ets": fit_predict_ets(panel, test, origin),
+                "prophet": fit_predict_prophet(panel, test, origin),
+                "linear_regression": fit_predict_linear_regression(train, test, feature_spec),
+                "random_forest": fit_predict_random_forest(
+                    train, test, feature_spec, settings.random_seed
+                ),
+                "xgboost": fit_predict_xgboost(train, test, feature_spec, settings.random_seed),
+                "catboost": fit_predict_catboost(train, test, feature_spec, settings.random_seed),
+            }
+            for name, values in benchmark_predictions.items():
+                fold_frame[name] = values
+                benchmark_metrics[name] = evaluate_forecast(actual, values)
+
         prediction_frames.append(fold_frame)
 
         fold_result = FoldResult(
@@ -366,6 +438,7 @@ def run_backtest(
             baseline=evaluate_forecast(actual, baseline.predictions),
             naive=evaluate_forecast(actual, naive_predictions),
             ensemble=ensemble_metrics,
+            benchmarks=benchmark_metrics,
         )
         fold_results.append(fold_result)
 
@@ -458,6 +531,13 @@ def run_backtest(
         )[["category", "wape"]].rename(columns={"wape": "ensemble_wape"})
         by_category = by_category.merge(ensemble_by_category, on="category", how="left")
 
+    # --- Benchmark aggregates ------------------------------------------------ #
+    benchmark_metrics: dict[str, ForecastMetrics] = {}
+    if include_benchmarks:
+        for name in BENCHMARK_MODEL_NAMES:
+            if name in all_predictions.columns:
+                benchmark_metrics[name] = evaluate_forecast(actual, all_predictions[name])
+
     result = BacktestResult(
         folds=fold_results,
         predictions=all_predictions,
@@ -471,6 +551,7 @@ def run_backtest(
         ensemble=ensemble_metrics,
         ensemble_interval_coverage=ensemble_coverage,
         by_regime=by_regime,
+        benchmarks=benchmark_metrics,
         settings_snapshot={
             "horizon_weeks": settings.horizon_weeks,
             "backtest_folds": settings.backtest_folds,

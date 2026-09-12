@@ -67,9 +67,21 @@ class Settings(BaseSettings):
     )
 
     # --- Client extract shape ----------------------------------------------- #
-    n_skus: int = Field(default=200, ge=10, le=5000)
+    n_skus: int = Field(default=200, ge=10, le=5000, description="Initial catalogue size.")
     history_start: dt.date = Field(default=dt.date(2023, 1, 2))
     history_end: dt.date = Field(default=dt.date(2026, 8, 30))
+    #: SKUs launched at each subsequent year boundary within the history window,
+    #: on top of `n_skus`. 0 (default) reproduces the original single-cohort
+    #: catalogue exactly - every existing generated dataset used this and stays
+    #: reproducible. Set positive to model an assortment that grows every year,
+    #: the way a real, ageing catalogue does.
+    new_skus_per_year: int = Field(default=0, ge=0, le=2000)
+    #: Fraction of the *whole* catalogue (initial + every cohort) given a
+    #: genuinely volatile demand archetype - see datagen.py's module docstring
+    #: for what that means and why it exists. 0.06 was chosen to reliably
+    #: populate the dashboard's "watch - volatile" quadrant with a handful of
+    #: SKUs without dominating the catalogue.
+    volatile_sku_share: float = Field(default=0.06, ge=0.0, le=0.5)
 
     # --- Commercial drivers (optional extension) ---------------------------- #
     use_drivers: bool = Field(

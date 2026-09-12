@@ -14,6 +14,8 @@ import { formatDate, formatSignedPercent, formatWape } from '../lib/format';
 interface HeaderProps {
   summary: PortfolioSummary | null;
   accuracy: AccuracySummary | null;
+  /** Opens the sidebar overlay on narrow viewports. Omitted on the loading/error shells. */
+  onMenuToggle?: () => void;
 }
 
 const MODEL_LABELS: Record<string, string> = {
@@ -22,13 +24,23 @@ const MODEL_LABELS: Record<string, string> = {
   seasonal_naive: 'Seasonal-naive',
 };
 
-export function Header({ summary, accuracy }: HeaderProps) {
+export function Header({ summary, accuracy, onMenuToggle }: HeaderProps) {
   const modelLabel = summary ? (MODEL_LABELS[summary.model] ?? summary.model) : '—';
 
   return (
     <header className="header">
       <div className="shell header__inner">
         <div className="header__brand">
+          {onMenuToggle ? (
+            <button
+              type="button"
+              className="header__menu-toggle"
+              onClick={onMenuToggle}
+              aria-label="Toggle navigation menu"
+            >
+              ☰
+            </button>
+          ) : null}
           <span className="header__mark">FORESIGHT</span>
           <span className="header__client">
             NorthBay Living · Demand &amp; Inventory Intelligence
